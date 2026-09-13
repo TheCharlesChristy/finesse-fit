@@ -154,7 +154,7 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .hero-action { min-height: 132px; width: 100%; font-size: 1.45rem; justify-content: center; display: inline-flex; align-items: center; gap: 12px; }
 .muscle-map-surface {
   width: 100%;
-  min-height: 440px;
+  min-height: 480px;
   display: grid;
   place-items: center;
   border-radius: 8px;
