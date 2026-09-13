@@ -278,7 +278,7 @@ export function ProfileModal({ profile, onboarding = false, onClose, onSave }) {
   };
 
   return (
-    <Modal title={onboarding ? 'Set up Finesse Fit' : 'Profile'} onClose={onClose}>
+    <Modal title={onboarding ? 'Set up Finesse Fit' : 'Profile'} onClose={onboarding ? onClose : undefined}>
       {onboarding && (
         <p className="secondary" style={{ margin: 0 }}>
           Add your body stats and blend your goals. Finesse Fit will calculate daily calories and macros from those inputs.
