@@ -7,6 +7,18 @@
     <meta name="description" content="Finesse Fit workout and nutrition tracker" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Finesse Fit</title>
+    <script>
+      // Apply the saved palette/theme before first paint. App.jsx keeps this in sync.
+      (function () {
+        try {
+          var saved = JSON.parse(localStorage.getItem('finesse-fit:appearance') || '{}');
+          var root = document.documentElement;
+          var light = saved.themeMode === 'light' || (saved.themeMode === 'system' && window.matchMedia('(prefers-color-scheme: light)').matches);
+          root.dataset.theme = light ? 'light' : 'dark';
+          if (saved.palette) root.dataset.palette = saved.palette;
+        } catch (e) { /* first run or storage blocked: CSS defaults apply */ }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
