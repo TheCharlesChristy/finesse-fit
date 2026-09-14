@@ -20,9 +20,21 @@ export default function ActivityModal({ workout, track, exercises, units, onClos
   const title = workout.name || (cardio.length ? activityLabel(cardio[0].activity) : 'Workout');
 
   return (
-    <Modal title={title} size="lg" onClose={onClose}>
-      <span className="muted" style={{ marginTop: -8 }}>{fmtDate(workout.startedAt ?? workout.date, workout.startedAt ? "EEEE d MMMM · HH:mm" : 'EEEE d MMMM')}</span>
-
+    <Modal
+      title={title}
+      subtitle={fmtDate(workout.startedAt ?? workout.date, workout.startedAt ? 'EEEE d MMMM · HH:mm' : 'EEEE d MMMM')}
+      size="lg"
+      onClose={onClose}
+      footer={(
+        <>
+          <button className="btn-danger" type="button" onClick={() => onDelete(workout.id)}><Trash2 size={18} aria-hidden="true" /> Delete</button>
+          <span className="spacer" />
+          {lines.length > 0 && <button className="btn-secondary" type="button" onClick={() => onSaveRoute(workout, track)}><MapPinned size={17} aria-hidden="true" /> Save as route</button>}
+          {lines.length > 0 && <button className="btn-secondary" type="button" onClick={() => onExportGpx(workout, track)}><Share2 size={17} aria-hidden="true" /> GPX</button>}
+          {(workout.sets?.length ?? 0) > 0 && <button className="btn-primary" type="button" onClick={() => onEditSets(workout)}><Pencil size={17} aria-hidden="true" /> Edit sets</button>}
+        </>
+      )}
+    >
       <div className="activity-stats">
         {distance > 0 && <div><span className="eyebrow">Distance</span><span className="metric">{fmtDistance(distance, units)}</span></div>}
         {workout.durationSeconds > 0 && <div><span className="eyebrow">Total time</span><span className="metric">{fmtClock(workout.durationSeconds)}</span></div>}
@@ -82,15 +94,6 @@ export default function ActivityModal({ workout, track, exercises, units, onClos
           </div>
         </section>
       )}
-
-      <div className="split modal-footer modal-actions-split">
-        <button className="btn-danger" type="button" onClick={() => onDelete(workout.id)}><Trash2 size={18} /> Delete</button>
-        <div className="row">
-          {lines.length > 0 && <button className="btn-secondary" type="button" onClick={() => onSaveRoute(workout, track)}><MapPinned size={17} /> Save as route</button>}
-          {lines.length > 0 && <button className="btn-secondary" type="button" onClick={() => onExportGpx(workout, track)}><Share2 size={17} /> GPX</button>}
-          {(workout.sets?.length ?? 0) > 0 && <button className="btn-primary" type="button" onClick={() => onEditSets(workout)}><Pencil size={17} /> Edit sets</button>}
-        </div>
-      </div>
     </Modal>
   );
 }

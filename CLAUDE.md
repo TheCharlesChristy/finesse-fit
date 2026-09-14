@@ -62,7 +62,13 @@ src/
 ├── pwa.js                 # Service-worker registration, update detection, updateApp()
 ├── photos.js              # Progress-photo compression (full + thumbnail JPEG bytes)
 ├── buildInfo.js           # APP_VERSION/APP_COMMIT/APP_BUILT_AT from vite.config.js define
-├── index.css              # All styling: CSS variables, island card classes, component styles
+├── index.css              # All styling. Everything above the app-specific marker is
+│                          #   SHARED verbatim with Finesse — see DESIGN_SYSTEM.md
+├── theme/                 # SHARED — the appearance model and the OKLCH palette generator
+│   ├── palettes.js        #   the curated catalogue (names only; colours live in index.css)
+│   ├── custom.js          #   hue/harmony/intensity/tint → six OKLCH tokens
+│   ├── appearance.js      #   the model, normalisation, and applying it to <html>
+│   └── useAppearance.js   #   the hook App.jsx calls once
 ├── data/
 │   └── exercises.js       # Seeded exercise library (name → primary/secondary muscles, equipment)
 ├── views/                 # One file per page/tab
@@ -76,7 +82,7 @@ src/
 │   └── Settings.jsx       # Includes Storage (persistence/quota) and About (version/update) cards
 ├── components/
 │   ├── Modals.jsx         # All modal dialogs
-│   ├── ui.jsx             # Modal, Field, IconButton, CardTitle
+│   ├── ui.jsx             # SHARED — Modal, Card, Field, Stat, Meter, Banner, Tabs, Portal…
 │   ├── useDialog.jsx      # Promise-based confirm/alert/prompt hook
 │   ├── useScrollLock.js   # Ref-counted body scroll lock used by Modal (nested-modal safe)
 │   ├── useBlobUrl.js      # object-URL lifecycle hook for raw bytes/Blob (photos, receipts-style)
@@ -85,6 +91,7 @@ src/
 │   ├── ScanLabelModal.jsx # Photo → OCR → parsed macros, hands off to FoodModal's `prefill`
 │   ├── RestTimer.jsx      # Rest countdown bar shown in the (past) workout editor
 │   ├── WorkoutSession.jsx # The live session overlay: now card, tick-off list, map, finish sheet
+│   ├── inputs.jsx         # Fit-only controls: NumberInput, DurationInput, Toggle (NOT shared — ui.jsx is)
 │   ├── PlanModal.jsx      # Plan designer (exercise / circuit / cardio / intervals / rest blocks)
 │   ├── RoutePlannerModal.jsx # Tap-to-plot route planner with optional path snapping
 │   ├── ActivityModal.jsx  # A saved session's detail: map, splits, segments, GPX export
@@ -93,7 +100,8 @@ src/
 │   ├── useGeolocation.js  # watchPosition hook + one-off fix helpers
 │   ├── useWakeLock.js     # Keeps the screen on during a session
 │   ├── WeekReview.jsx     # Weekly summary stat grid (Today + Progress)
-│   ├── PaletteSelect.jsx  # Accessible palette dropdown with live swatches
+│   ├── AppShell.jsx       # SHARED — sidebar + mobile tab bar + "More" sheet
+│   ├── AppearanceSettings.jsx # SHARED — the palette/finish/density panel
 │   ├── useRestTimer.js    # Timestamp-based rest timer hook (vibrate + beep on finish)
 │   └── BarcodeScanner.jsx # Camera capture + decode, returns a barcode string
 └── __tests__/              # Vitest suite — see Testing below
@@ -180,7 +188,7 @@ The parser's heuristics (worth knowing before touching either file):
 - GPS fixes are only recorded while a GPS cardio step's work timer runs; each start begins a new track segment, so pauses never count as distance. Filtering (accuracy, jitter, impossible jumps) is `appendFix()` in `geo.js`.
 - The reducer emits `cue` events; `WorkoutSession.jsx` turns them into beeps/vibration/speech. `cues.js` only uses `localService` speech voices — never a cloud voice.
 
-**`WorkoutSession.jsx`** is mounted at `App.jsx` level (not a view) so timers and GPS keep running while minimised to the pill and the user browses elsewhere. It owns the reducer state and persists it to `activeSession` every few seconds and on `visibilitychange`/`pagehide`; `App.jsx` resumes it on launch. It must **not** persist on unmount — a session unmounts only when it's saved, discarded or replaced, and a late write would resurrect it (this is why there's a `closing` ref). `useLiveQuery` in `App.jsx` reads only `hasActiveSession()` (a count) so the 3-second saves don't re-render the whole app.
+**`WorkoutSession.jsx`** is mounted at `App.jsx` level (not a view) and renders both the full-screen layer and the minimised pill through `Portal` — inside `.app` they would share its stacking context and sit under the mobile tab bar. Its z-index (50) is above the tab bar and "More" sheet, below dialogs (60). It stays mounted so timers and GPS keep running while minimised to the pill and the user browses elsewhere. It owns the reducer state and persists it to `activeSession` every few seconds and on `visibilitychange`/`pagehide`; `App.jsx` resumes it on launch. It must **not** persist on unmount — a session unmounts only when it's saved, discarded or replaced, and a late write would resurrect it (this is why there's a `closing` ref). `useLiveQuery` in `App.jsx` reads only `hasActiveSession()` (a count) so the 3-second saves don't re-render the whole app.
 
 **Finishing** goes through `sessionToWorkout()` → `saveSessionWorkout()`: completed exercise steps become normal `sets` (timed sets carry `seconds` with `reps: 0`, and `muscleVolume` is maintained as usual), cardio steps become `workout.cardio`, and the GPS track goes to the **`tracks` table keyed by `workoutId`** — never onto the workout row, because `getWorkouts()` is loaded app-wide. The row gets only a small `routePreview` (≤60 points) for list thumbnails. `deleteWorkout()` returns the track attached as `track` so Undo restores both. "Update plan" on finish uses `planWithActuals()` (heaviest completed set per exercise; cardio goals unchanged).
 
@@ -219,30 +227,58 @@ When adding a derived-counter mutation or a new pure function with non-trivial l
 
 ## Styling rules
 
-The design system is **floating islands**: flat, solid cards with soft shadows floating over a plain page background, with **user-selectable colour palettes** and dark/light modes. No blur, gradients, glows or sheen — keep it clean. All design tokens are CSS custom properties in `index.css`.
+**The design system is shared with Finesse, byte for byte. Read
+[DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) before touching anything visual.**
 
-- Use the semantic classes (`.card`, `.card-raised`, `.btn-primary`, `.input`, `.chip`, `.list-row`, etc.) rather than Tailwind utilities for component styles
-- A `.card` inside another `.card` or a modal renders as a flat inset section automatically — don't stack shadows
-- Inline styles are acceptable and used throughout — this is intentional for a single-developer project
-- Do not add new CSS files — put styles in `index.css`
-- **Never hard-code a colour in a component or rule.** Use tokens (below) or `color-mix()` on them, so every palette and both modes keep working
-- Fonts: **DM Serif Display** for page/modal titles (`.font-display`), **DM Sans** for everything else (self-hosted via `@fontsource`)
+These files are the *same file* in both repositories — change one and copy it to
+the other in the same commit:
 
-### Token layers (`index.css`)
+- `src/index.css`, everything above the `FINESSE FIT — app-specific` marker
+- `src/theme/` — `palettes.js`, `custom.js`, `appearance.js`, `useAppearance.js`
+- `src/components/ui.jsx`, `AppShell.jsx`, `AppearanceSettings.jsx`
+- `DESIGN_SYSTEM.md` itself
 
-1. **Structure** — `--radius-xs … --radius-xl`, `--gap`, `--tabbar-height`
-2. **Palette** (`[data-palette="<id>"]` and `[data-palette="<id>"][data-theme="light"]`) — only: `--bg`, `--accent`, `--accent-2`, `--accent-3`, `--accent-4`, `--on-accent` (text on accent fills)
-3. **Mode** (`:root`/`[data-theme="dark"]`, `[data-theme="light"]`) — `--surface` (islands), `--surface-2` (inset rows/sections), `--surface-hover`, `--surface-raised` (menus, modals, toasts), `--line`/`--line-strong`, `--text-*`, `--good`/`--warn`/`--danger`, `--shadow`/`--shadow-lg`, `--track`, `--scrim`. Dark-mode surfaces are mixed from the palette's `--bg`, so each palette's tint carries through.
+The short version:
 
-Derived tokens (`--accent-soft`, `--accent-line`, `--accent-hover`, `--heat-0…3` for the muscle map) are computed on `:root`.
+- **Never hard-code a colour, a radius or a spacing value in a component.** Use a
+  token or a `color-mix()` of one. A literal opts that call site out of eleven
+  palettes, two schemes, three finishes and the high-contrast setting at once,
+  and nothing will tell you.
+- Use the semantic classes (`.card`, `.panel`, `.btn-primary`, `.input`, `.chip`,
+  `.list-row`, `.stat`, `.empty-state`…) rather than Tailwind utilities or an
+  inline `display: flex`.
+- A `.card` inside another `.card` or a dialog becomes a flat inset section
+  automatically — don't stack shadows.
+- Do not add new CSS files — `index.css` is the whole stylesheet.
+- Fonts: **DM Serif Display** for page and dialog titles (`.font-display`),
+  **DM Sans** for everything else, **JetBrains Mono** for numbers read in columns
+  (`.metric`, `.hero-num`, `.font-mono`). All self-hosted via `@fontsource`.
 
-Accent roles: `--accent` primary actions/active/positive · `--accent-2` secondary data · `--accent-3` tertiary data · `--accent-4` highlight (PRs, reference lines). Status colours stay semantic and don't change per palette.
+### Appearance
 
-### Palettes
+Nine preferences, one object, stored on the profile row as `profile.appearance`
+and mirrored to the single localStorage key `finesse-fit:appearance` so the boot
+script in `index.html` paints before React loads:
 
-`App.jsx` sets `data-theme` and `data-palette` on `<html>` from the profile (`profile.themeMode`, `profile.palette`), and mirrors them to the single localStorage key `finesse-fit:appearance` so the boot script in `index.html` paints the right palette before React loads.
+`themeMode` · `palette` (+ `custom`) · `surface` · `density` · `corners` ·
+`contrast` · `textScale` · `motion`
 
-To add a palette: add both token blocks in `index.css` (dark and light — check `--on-accent` contrast on `--accent`), then add `{ id, name, description }` to `src/data/palettes.js`. The Settings dropdown (`components/PaletteSelect.jsx`) renders swatches by scoping `data-palette`/`data-theme` onto each swatch, so no colours are duplicated in JS.
+`App.jsx` calls `useAppearance(profile.appearance, APPEARANCE_KEY, loaded)`,
+which writes the `data-*` attributes and returns the resolved theme. No view ever
+reads a preference — a view that wanted to know the current palette in order to
+pick a colour would be the first crack in a system whose point is that colour is
+decided in one file.
+
+Profiles saved before this existed carry a flat `themeMode`/`palette` pair;
+`getProfile` reads them as the two fields they map onto and lets
+`normaliseAppearance` default the other seven.
+
+### The muscle map
+
+Its heat ramp comes from `--heat-0…3`, derived from the palette, so it reads
+correctly in every theme without a rule of its own. The alternative ramps in
+`Progress.jsx` are built from tokens too — a fixed ramp looks right under exactly
+one palette, and the map's whole job is comparing regions against each other.
 
 ---
 
@@ -260,7 +296,19 @@ To add a palette: add both token blocks in `index.css` (dark and light — check
 3. Add `{modal === 'logSet' && <LogSetModal ... />}` at the bottom of `App.jsx`'s JSX
 4. Open it with `setModal('logSet')` from a button or callback
 
-Use the shared `Modal` component from `components/ui.jsx` — it handles focus trapping, Escape, and overlay dismissal. Pass `size="sm" | "md" (default) | "lg"` (or `large` as a shorthand for `lg`) to match the form's content: `sm` for a single short field (confirm/prompt dialogs, bodyweight), `lg` for a multi-row editor (workout sets, exercise muscle picker). A `<div className="card panel">` nested inside a modal automatically renders as a flat inset section, not another floating card.
+Use the shared `Modal` from `components/ui.jsx` — focus trap, Escape, overlay
+dismissal and a body scroll lock. Pass `size="sm" | "md" (default) | "lg"` to
+match the form: `sm` for a single short field (confirm/prompt, bodyweight), `lg`
+for a multi-row editor (workout sets, muscle picker).
+
+**Actions go in `footer`, not at the end of the children.** The footer sits
+outside the scrolling body, which is what keeps Save reachable on a twenty-set
+workout — and therefore outside the `<form>`, so `footer` may be a function and
+is handed the form's id for `type="submit" form={formId}`. `Actions` in
+`Modals.jsx` is the shared footer every editing dialog uses.
+
+A `<div className="card panel">` nested inside a dialog renders as a flat inset
+section automatically, not another floating card.
 
 ---
 
@@ -330,6 +378,14 @@ Open DevTools → Application → IndexedDB → FinesseFit. All tables are visib
 - **Don't fetch tesseract.js/OCR assets from a CDN.** They're self-hosted under `public/tesseract/` on purpose — a CDN default would send a label photo off-device, which breaks the whole point of the exception described above.
 - **Don't save a scanned label's values straight to the database.** Always route through `FoodModal`'s `prefill` — OCR is best-effort and must always get a human check first.
 - **Don't bring back fat-loss/muscle-gain sliders.** Daily targets are driven by `targetBodyweight`/`targetBodyFat` (direct outcome inputs, "Body composition targets" in the Profile modal) plus the `performance`/`health` training-priority sliders — `calculateNutritionTargets` derives fat-loss/muscle-gain *intensity* internally from the composition targets. `goalMix.fatLoss`/`goalMix.muscleGain` still exist purely as a fallback for profiles saved before this existed (see DEV_GUIDE.md's "Nutrition targets" section) — don't wire a new slider to them.
+- **Don't let the two repositories' shared files drift.** `src/theme/`,
+  `src/components/ui.jsx`, `AppShell.jsx`, `AppearanceSettings.jsx`,
+  `DESIGN_SYSTEM.md` and everything in `index.css` above the app-specific marker
+  are the same file in Finesse. Change one, copy it across in the same commit.
+- **Don't position a popover with `position: fixed` inside a card.** Under the
+  Glass finish a card carries a `backdrop-filter`, which makes it the containing
+  block for fixed positioning — the popover then anchors to the card, silently,
+  and only under that one setting. Render it through `Portal` from `ui.jsx`.
 - **Don't declare a ref "live" with only `useRef(true)`.** If an async effect guards state updates with a ref like that, set it inside the effect body too (see "Nutrition-label scanning" above) — StrictMode's dev double-invoke will otherwise latch it `false` forever on the very first real mount.
 
 ---

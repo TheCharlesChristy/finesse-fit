@@ -2,8 +2,8 @@ import { fmtCalories, fmtCompact, fmtWeight } from '../utils.js';
 
 function Stat({ value, label, tone }) {
   return (
-    <div className="review-stat">
-      <div className={`review-value ${tone ?? ''}`}>{value}</div>
+    <div className="stat">
+      <div className={`stat-value ${tone ?? ''}`}>{value}</div>
       <span className="muted">{label}</span>
     </div>
   );
@@ -12,7 +12,7 @@ function Stat({ value, label, tone }) {
 export default function WeekReview({ review, units }) {
   const { volumeChange, weightChange } = review;
   return (
-    <div className="review-grid">
+    <div className="stat-grid">
       <Stat value={`${review.daysLogged}/7`} label="days logged" />
       <Stat value={`${review.caloriesOnTarget}/7`} label="calories on target" tone={review.caloriesOnTarget >= 5 ? 'good' : undefined} />
       <Stat value={`${review.proteinOnTarget}/7`} label="protein on target" tone={review.proteinOnTarget >= 5 ? 'good' : undefined} />

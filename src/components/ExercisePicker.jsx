@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
 import { EXERCISE_CATEGORIES, EXERCISE_EQUIPMENT, categoryForExercise, categoryLabel } from '../data/exercise-library/index.js';
 import { muscleLabel } from '../utils.js';
+import { Portal } from './ui.jsx';
 
 const DISPLAY_LIMIT = 80;
 const labelForEquipment = (value) => muscleLabel(value).replace('Ez Bar', 'EZ Bar');
@@ -12,6 +13,7 @@ export default function ExercisePicker({ value, exercises, onChange, recentExerc
   const [folder, setFolder] = useState('all');
   const [equipment, setEquipment] = useState('all');
   const rootRef = useRef(null);
+  const popoverRef = useRef(null);
   const triggerRef = useRef(null);
   const searchRef = useRef(null);
   const [popoverStyle, setPopoverStyle] = useState(null);
@@ -66,7 +68,11 @@ export default function ExercisePicker({ value, exercises, onChange, recentExerc
     positionPopover();
     searchRef.current?.focus();
     const onPointer = (event) => {
-      if (!rootRef.current?.contains(event.target)) setOpen(false);
+      // The popover lives in a portal, so "outside" means outside *both* it and
+      // the trigger — testing only the trigger's subtree would close the picker
+      // on its own first click.
+      if (rootRef.current?.contains(event.target) || popoverRef.current?.contains(event.target)) return;
+      setOpen(false);
     };
     const onKey = (event) => {
       if (event.key === 'Escape') {
@@ -96,7 +102,11 @@ export default function ExercisePicker({ value, exercises, onChange, recentExerc
   };
 
   return (
-    <div className="exercise-picker" ref={rootRef}>
+    /* `data-popover-open` is what tells the enclosing dialog that the first
+       Escape belongs to this picker, not to the form — see Modal in ui.jsx. It
+       stays on the trigger's wrapper, which is inside the dialog, even though
+       the popover itself is portalled out of it. */
+    <div className="exercise-picker" ref={rootRef} data-popover-open={open ? 'true' : undefined}>
       <button
         ref={triggerRef}
         type="button"
@@ -113,8 +123,12 @@ export default function ExercisePicker({ value, exercises, onChange, recentExerc
         <ChevronDown size={18} aria-hidden="true" />
       </button>
 
+      {/* Portalled to <body>: under the Glass finish the dialog above this
+          carries a `backdrop-filter`, which would make it the containing block
+          for `position: fixed` and anchor the popover to the wrong element. */}
       {open && popoverStyle && (
-        <div id={listId} className="exercise-picker-popover card-raised" role="dialog" aria-label="Choose exercise" style={popoverStyle}>
+        <Portal>
+        <div ref={popoverRef} id={listId} className="exercise-picker-popover card-raised" role="dialog" aria-label="Choose exercise" style={popoverStyle}>
           <div className="exercise-picker-search-row">
             <div className="search-input exercise-picker-search">
               <Search size={17} aria-hidden="true" />
@@ -132,7 +146,7 @@ export default function ExercisePicker({ value, exercises, onChange, recentExerc
                 </button>
               ))}
             </div>
-            <label className="exercise-picker-equipment"><span className="sr-only">Equipment</span><select className="input compact-select" aria-label="Filter by equipment" value={equipment} onChange={(event) => setEquipment(event.target.value)}>
+            <label className="exercise-picker-equipment"><span className="sr-only">Equipment</span><select className="input input-inline input-sm" aria-label="Filter by equipment" value={equipment} onChange={(event) => setEquipment(event.target.value)}>
               <option value="all">All equipment</option>
               {EXERCISE_EQUIPMENT.filter((item) => item !== 'other').map((item) => <option key={item} value={item}>{labelForEquipment(item)}</option>)}
             </select></label>
@@ -140,7 +154,7 @@ export default function ExercisePicker({ value, exercises, onChange, recentExerc
 
           <div className="exercise-picker-summary" aria-live="polite">
             <span><strong>{results.length}</strong> match{results.length === 1 ? '' : 'es'}</span>
-            {(query || folder !== 'all' || equipment !== 'all') && <button type="button" className="btn-link" onClick={() => { setQuery(''); setFolder('all'); setEquipment('all'); }}>Clear filters</button>}
+            {(query || folder !== 'all' || equipment !== 'all') && <button type="button" className="btn-ghost" onClick={() => { setQuery(''); setFolder('all'); setEquipment('all'); }}>Clear filters</button>}
           </div>
 
           <div className="exercise-picker-results" role="listbox" aria-label="Exercise results">
@@ -162,6 +176,7 @@ export default function ExercisePicker({ value, exercises, onChange, recentExerc
             {results.length > DISPLAY_LIMIT && <div className="exercise-picker-more">Showing the first {DISPLAY_LIMIT}. Search or choose a folder to narrow the list.</div>}
           </div>
         </div>
+        </Portal>
       )}
     </div>
   );

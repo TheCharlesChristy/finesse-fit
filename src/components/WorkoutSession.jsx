@@ -15,7 +15,8 @@ import RouteMap from './RouteMap.jsx';
 import { useGeolocation } from './useGeolocation.js';
 import { useScrollLock } from './useScrollLock.js';
 import { useWakeLock } from './useWakeLock.js';
-import { DurationInput, Field, IconButton, Modal, NumberInput, OverflowMenu, Segmented, Toggle } from './ui.jsx';
+import { DurationInput, NumberInput, Toggle } from './inputs.jsx';
+import { EmptyState, Field, IconButton, Meter, Modal, OverflowMenu, Portal, Segmented } from './ui.jsx';
 
 function useNow(intervalMs) {
   const [now, setNow] = useState(() => Date.now());
@@ -88,7 +89,7 @@ function Countdown({ remaining, total, label }) {
   return (
     <div className="countdown" role="timer" aria-label={label}>
       <span className="hero-num">{fmtClock(Math.ceil(remaining / 1000))}</span>
-      <div className="progress-track countdown-track"><div className="progress-fill" style={{ '--value': `${fraction * 100}%` }} /></div>
+      <Meter value={fraction} max={1} label={label} />
     </div>
   );
 }
@@ -133,7 +134,7 @@ function NowCard({ state, step, now, units, exercises, workouts, geo, dispatch, 
       <section className="card now-card done-all">
         <span className="eyebrow">All ticked off</span>
         <h3 className="font-display now-title">Nice work.</h3>
-        <button type="button" className="btn-primary hero-action" onClick={onFinish}><Check size={22} /> Finish workout</button>
+        <button type="button" className="btn-primary btn-hero" onClick={onFinish}><Check size={22} aria-hidden="true" /> Finish workout</button>
       </section>
     );
   }
@@ -195,7 +196,7 @@ function NowCard({ state, step, now, units, exercises, workouts, geo, dispatch, 
         {statusRow}
         {step.measure === 'reps' && !done && !skipped && (
           <div className="now-actions">
-            <button type="button" className="btn-primary hero-action" onClick={complete}><Check size={24} /> Done{step.restAfter ? <span className="hero-action-sub">then {fmtSpan(step.restAfter)} rest</span> : null}</button>
+            <button type="button" className="btn-primary btn-hero" onClick={complete}><Check size={24} aria-hidden="true" /> Done{step.restAfter ? <span className="btn-hero-sub">then {fmtSpan(step.restAfter)} rest</span> : null}</button>
             <button type="button" className="btn-ghost" onClick={skip}>Skip</button>
           </div>
         )}
@@ -224,7 +225,7 @@ function NowCard({ state, step, now, units, exercises, workouts, geo, dispatch, 
       ? (
         <div className="countdown">
           <span className="hero-num">{toDisplayDistance(values.trackedMeters, units).toFixed(2)}<span className="hero-unit">/ {toDisplayDistance(targetMeters, units)} {distanceUnitLabel(units)}</span></span>
-          <div className="progress-track countdown-track"><div className="progress-fill" style={{ '--value': `${Math.min(100, (values.trackedMeters / targetMeters) * 100)}%` }} /></div>
+          <Meter value={values.trackedMeters} max={targetMeters} label="Distance covered" />
         </div>
       )
       : <div className="countdown"><span className="hero-num">{fmtClock(values.elapsedMs / 1000)}</span></div>;
@@ -293,13 +294,25 @@ function AddToSession({ exercises, onAdd, onClose }) {
     else onAdd({ ...newBlock('rest'), seconds });
   };
   return (
-    <Modal title="Add to workout" size="sm" onClose={onClose} onSubmit={submit}>
+    <Modal
+      title="Add to workout"
+      size="sm"
+      onClose={onClose}
+      onSubmit={submit}
+      footer={({ formId }) => (
+        <>
+          <span className="spacer" />
+          <button className="btn-secondary" type="button" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" type="submit" form={formId} disabled={kind === 'exercise' && block.exerciseId == null}><Plus size={18} aria-hidden="true" /> Add</button>
+        </>
+      )}
+    >
       <Segmented label="Add" hideLabel value={kind} onChange={setKind} options={[{ value: 'exercise', label: 'Exercise' }, { value: 'run', label: 'Run' }, { value: 'rest', label: 'Rest' }]} />
       {kind === 'exercise' && (
         <>
           <ExercisePicker value={block.exerciseId ?? ''} exercises={exercises} onChange={(exerciseId) => set({ exerciseId })} />
           <Segmented label="Measure" value={block.measure} onChange={(measure) => set({ measure })} options={[{ value: 'reps', label: 'Reps' }, { value: 'time', label: 'Time' }]} />
-          <div className="form-grid form-grid-tight">
+          <div className="form-grid">
             <Field label="Sets"><NumberInput step="1" value={block.sets} onChange={(value) => set({ sets: Math.max(1, Number.parseInt(value, 10) || 1) })} /></Field>
             {block.measure === 'time'
               ? <Field label="Time"><DurationInput seconds={block.seconds} onChange={(value) => set({ seconds: value })} /></Field>
@@ -310,10 +323,6 @@ function AddToSession({ exercises, onAdd, onClose }) {
       )}
       {kind === 'run' && <span className="muted">An open-ended GPS run. Finish it whenever you’re done.</span>}
       {kind === 'rest' && <Field label="Rest for"><DurationInput seconds={seconds} onChange={setSeconds} /></Field>}
-      <div className="row modal-actions modal-footer">
-        <button className="btn-secondary" type="button" onClick={onClose}>Cancel</button>
-        <button className="btn-primary" type="submit" disabled={kind === 'exercise' && block.exerciseId == null}><Plus size={18} /> Add</button>
-      </div>
     </Modal>
   );
 }
@@ -337,7 +346,20 @@ function FinishSheet({ state, now, units, plan, exercises, onKeepGoing, onSave, 
   };
 
   return (
-    <Modal title="Finish workout" size="sm" onClose={onKeepGoing} onSubmit={save}>
+    <Modal
+      title="Finish workout"
+      size="sm"
+      onClose={onKeepGoing}
+      onSubmit={save}
+      footer={({ formId }) => (
+        <>
+          <button className="btn-danger" type="button" onClick={onDiscard}><Trash2 size={17} aria-hidden="true" /> Discard</button>
+          <span className="spacer" />
+          <button className="btn-secondary" type="button" onClick={onKeepGoing}>Keep going</button>
+          <button className="btn-primary" type="submit" form={formId} disabled={nothing || saving}><Check size={18} aria-hidden="true" /> Save</button>
+        </>
+      )}
+    >
       <div className="finish-stats">
         <div><span className="eyebrow">Time</span><span className="metric">{fmtClock((now - state.startedAt) / 1000)}</span></div>
         <div><span className="eyebrow">Done</span><span className="metric">{progress.done}<small>/{progress.total}</small></span></div>
@@ -348,15 +370,6 @@ function FinishSheet({ state, now, units, plan, exercises, onKeepGoing, onSave, 
       {progress.pending > 0 && <span className="muted">{progress.pending} step{progress.pending === 1 ? '' : 's'} not done won’t be saved.</span>}
       {planChanged && <Toggle checked={updatePlan} onChange={setUpdatePlan} hint="Next time starts from today’s weights and reps (and any exercises you added).">Update “{plan.name}”</Toggle>}
       {nothing && <span className="status-warn scanner-status">Nothing’s ticked off yet, so there’s nothing to save.</span>}
-      <div className="stack modal-footer" style={{ gap: 8 }}>
-        <div className="split modal-actions-split">
-          <button className="btn-danger" type="button" onClick={onDiscard}><Trash2 size={17} /> Discard</button>
-          <div className="row">
-            <button className="btn-secondary" type="button" onClick={onKeepGoing}>Keep going</button>
-            <button className="btn-primary" type="submit" disabled={nothing || saving}><Check size={18} /> Save</button>
-          </div>
-        </div>
-      </div>
     </Modal>
   );
 }
@@ -483,18 +496,23 @@ export default function WorkoutSession({ initial, plan, exercises, workouts, rou
     return saved;
   };
 
+  // Both layers render through Portal: inside `.app` they would share its
+  // stacking context and sit under the mobile tab bar.
   if (minimized) {
     return (
+      <Portal>
       <button type="button" className="session-pill card-raised" onClick={onExpand}>
         <span className={`live-dot ${recording ? 'recording' : ''}`} aria-hidden="true" />
         <span className="truncate"><strong>{state.name}</strong></span>
         <span className="font-mono">{state.timer?.kind === 'rest' ? `Rest ${fmtClock(Math.ceil(remaining / 1000))}` : recording ? fmtDistance(state.track.distance, units) : fmtClock(elapsed)}</span>
         <span className="session-pill-action">Open</span>
       </button>
+      </Portal>
     );
   }
 
   return (
+    <Portal>
     <div className="session-shell" role="dialog" aria-modal="true" aria-label={`${state.name} in progress`}>
       <div className="session-top">
       <header className="session-header">
@@ -511,7 +529,7 @@ export default function WorkoutSession({ initial, plan, exercises, workouts, rou
         ]} />
         <button type="button" className="btn-primary" onClick={() => setFinishing(true)}>Finish</button>
       </header>
-      <div className="progress-track session-progress"><div className="progress-fill" style={{ '--value': `${progress.total ? ((progress.done + progress.skipped) / progress.total) * 100 : 0}%` }} /></div>
+      <div className="session-progress"><Meter thin value={progress.done + progress.skipped} max={progress.total} label="Workout progress" /></div>
       </div>
 
       <div className="session-body">
@@ -519,7 +537,7 @@ export default function WorkoutSession({ initial, plan, exercises, workouts, rou
           <section className="card session-map-card">
             <div className="split session-map-bar">
               <span className="card-title"><MapIcon size={15} /> {plannedRoute ? plannedRoute.name : 'Map'}</span>
-              <div className="row" style={{ gap: 6 }}>
+              <div className="row row-tight">
                 {showMap && <button type="button" className={`chip ${follow ? 'active' : ''}`} aria-pressed={follow} onClick={() => setFollow(!follow)}>{follow ? <Navigation size={13} /> : <LocateFixed size={13} />} Follow</button>}
                 <button type="button" className="chip" aria-expanded={showMap} onClick={() => setShowMap(!showMap)}>{showMap ? 'Hide' : 'Show'}</button>
               </div>
@@ -578,9 +596,10 @@ export default function WorkoutSession({ initial, plan, exercises, workouts, rou
             );
           })}
           {!state.blocks.length && (
-            <section className="card panel stack">
-              <strong>Nothing planned — build it as you go.</strong>
-              <button type="button" className="btn-secondary" style={{ justifySelf: 'start' }} onClick={() => setAdding(true)}><Plus size={18} /> Add exercise or run</button>
+            <section className="card panel">
+              <EmptyState icon={Dumbbell} title="Nothing planned yet" action={<button type="button" className="btn-secondary" onClick={() => setAdding(true)}><Plus size={18} aria-hidden="true" /> Add exercise or run</button>}>
+                Build the workout as you go — add an exercise, a run or a rest.
+              </EmptyState>
             </section>
           )}
           {state.blocks.length > 0 && <button type="button" className="btn-ghost add-to-session" onClick={() => setAdding(true)}><Plus size={16} /> Add exercise or run</button>}
@@ -601,5 +620,6 @@ export default function WorkoutSession({ initial, plan, exercises, workouts, rou
         />
       )}
     </div>
+    </Portal>
   );
 }

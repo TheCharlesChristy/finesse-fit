@@ -14,7 +14,7 @@ function LedgerRow({ label, value, target, unit, color }) {
   return (
     <div className="ledger-row">
       <span className="eyebrow">{label}</span>
-      <div className="ledger-track"><div className={`ledger-fill ${over ? 'over' : ''}`} style={{ '--value': `${Math.min(100, pct)}%`, '--bar': color }} /></div>
+      <div className="progress-track thin"><div className={`progress-fill ${over ? 'over' : ''}`} style={{ '--value': `${Math.min(100, pct)}%`, '--bar': color }} /></div>
       <span className="metric ledger-value">{Math.round(value ?? 0)}<span className="ledger-unit">/{Math.round(target)}{unit}</span></span>
     </div>
   );
@@ -25,8 +25,8 @@ function HeroNutrition({ totals, targets }) {
   const remaining = Math.round((targets.calories ?? 0) - (totals.calories ?? 0));
   const over = remaining < 0;
   return (
-    <section className="card panel hero-nutrition">
-      <div className="hero-ring-wrap">
+    <section className="card hero">
+      <div className="hero-ring">
         <StatRing pct={calPct} size={168} thickness={13} over={over} />
         <div className="hero-ring-center">
           <span className="eyebrow">{over ? 'Over target' : 'Calories left'}</span>
@@ -132,7 +132,7 @@ export default function Dashboard({ profile, foodLogs, dailyTotals, workouts, mu
                   <span>{mealLabel(meal)}</span>
                   <span className="row" style={{ gap: 2, flexWrap: 'nowrap' }}>
                     {fmtCalories(logs.reduce((sum, log) => sum + (log.computed?.calories ?? 0), 0))}
-                    <IconButton label={`Save ${mealLabel(meal).toLowerCase()} as a meal`} className="btn-icon btn-icon-sm" onClick={() => onSaveMeal(meal, logs)}><BookmarkPlus size={15} /></IconButton>
+                    <IconButton label={`Save ${mealLabel(meal).toLowerCase()} as a meal`} className="btn-icon btn-sm" onClick={() => onSaveMeal(meal, logs)}><BookmarkPlus size={15} /></IconButton>
                   </span>
                 </div>
                 <div className="list">
@@ -168,7 +168,7 @@ export default function Dashboard({ profile, foodLogs, dailyTotals, workouts, mu
         <div className="layout-aside">
           <section className="card panel stack">
             <CardTitle icon={Dumbbell} action={<button className="btn-ghost" type="button" onClick={onAddWorkout}><Plus size={16} /> Log</button>}>This week</CardTitle>
-            <div className="stat-row">
+            <div className="stat-grid tight">
               <div><div className="metric">{weekSessions.length}</div><span className="muted">sessions</span></div>
               <div><div className="metric">{weekSets}</div><span className="muted">sets</span></div>
               <div><div className="metric">{fmtCompact(weekVolume)}</div><span className="muted">volume</span></div>
@@ -188,7 +188,7 @@ export default function Dashboard({ profile, foodLogs, dailyTotals, workouts, mu
                   </div>
                 )}
                 {neglected.length > 0 && (
-                  <button type="button" className="detail-row as-button" onClick={() => onSetView('progress')}>
+                  <button type="button" className="detail-row" onClick={() => onSetView('progress')}>
                     <span className="muted">Needs attention</span>
                     <span className="truncate">{neglected.map((row) => muscleLabel(row.muscle)).join(', ')}</span>
                   </button>

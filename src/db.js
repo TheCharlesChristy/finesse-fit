@@ -1,6 +1,7 @@
 import Dexie from 'dexie';
 import { SEEDED_EXERCISES } from './data/exercise-library/index.js';
 import { normalizePlan } from './plans.js';
+import { DEFAULT_APPEARANCE, normaliseAppearance } from './theme/appearance.js';
 import { DEFAULT_GOAL_MIX, DEFAULT_TARGET_BODY_FAT, addTotals, attributeVolume, calculateNutritionTargets, dateKey, normalizeBodyCompositionTargets, round, scaleNutrition, setLoad, setVolume, weekKey } from './utils.js';
 
 export const db = new Dexie('FinesseFit');
@@ -96,8 +97,9 @@ export const DEFAULT_PROFILE = {
   targetBodyFat: DEFAULT_TARGET_BODY_FAT,
   goalMix: DEFAULT_GOAL_MIX,
   targets: calculateNutritionTargets({ height: 178, bodyweight: 78, targetBodyweight: 78, targetBodyFat: DEFAULT_TARGET_BODY_FAT, goalMix: DEFAULT_GOAL_MIX }),
-  themeMode: 'dark',
-  palette: 'mint'
+  // Every visual preference lives in one nested object so the appearance model
+  // is the same shape here as it is in Finesse — see theme/appearance.js.
+  appearance: DEFAULT_APPEARANCE
 };
 
 const TABLES = ['profile', 'foods', 'foodLogs', 'dailyTotals', 'exercises', 'workouts', 'muscleVolume', 'bodyweightLogs', 'goals', 'meals', 'templates', 'routes', 'tracks'];
@@ -171,7 +173,14 @@ export async function getProfile() {
   // from the new defaults without rewriting the user's stored data on every read.
   const hasCompositionTargets = saved.targetBodyweight != null || saved.targetBodyFat != null;
   const next = { ...DEFAULT_PROFILE, ...saved, ...normalizeBodyCompositionTargets(saved) };
-  return { ...next, targets: hasCompositionTargets ? (saved.targets ?? calculateNutritionTargets(next)) : calculateNutritionTargets(next) };
+  return {
+    ...next,
+    // Profiles written before the appearance model existed carry a flat
+    // themeMode/palette pair; read them as the two fields they map onto and let
+    // normaliseAppearance default the other seven.
+    appearance: normaliseAppearance(saved.appearance ?? { themeMode: saved.themeMode, palette: saved.palette }),
+    targets: hasCompositionTargets ? (saved.targets ?? calculateNutritionTargets(next)) : calculateNutritionTargets(next)
+  };
 }
 
 export async function updateProfile(patch) {
@@ -180,7 +189,7 @@ export async function updateProfile(patch) {
 }
 
 export async function saveProfile(profile) {
-  const merged = { ...DEFAULT_PROFILE, ...profile, id: 1 };
+  const merged = { ...DEFAULT_PROFILE, ...profile, id: 1, appearance: normaliseAppearance(profile.appearance) };
   const composition = normalizeBodyCompositionTargets({ ...profile, bodyweight: profile.bodyweight ?? DEFAULT_PROFILE.bodyweight });
   const next = { ...merged, ...composition };
   const hasCompositionTargets = profile.targetBodyweight != null || profile.targetBodyFat != null;

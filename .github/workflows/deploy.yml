@@ -1,0 +1,70 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# The branch-based (peaceiris/actions-gh-pages) flow this replaced pushed a
+# working gh-pages branch every time but depended on Settings → Pages →
+# Source being pointed at that branch by hand — a toggle that's easy to
+# never have set, which is exactly what a green deploy + a 404 on the live
+# site looks like. The official Actions flow below creates/points the Pages
+# site itself (via the pages:write permission), so there's no separate
+# manual step to forget.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npm run build
+
+      # The build writes hidden sourcemaps (vite.config.js) purely so a raw
+      # stack trace copied off a phone can be mapped back to real source.
+      # They're worth keeping, just not in the published site: attaching them
+      # to the run keeps each build's own maps retrievable without pushing
+      # several MB of them into the Pages deployment on every single merge.
+      - name: Keep this build's sourcemaps with the run
+        uses: actions/upload-artifact@v4
+        with:
+          name: sourcemaps-${{ github.sha }}
+          path: dist/**/*.map
+          retention-days: 30
+          if-no-files-found: warn
+
+      # Sourcemaps for the app's own JS chunks aren't referenced by anything
+      # a browser requests: `sourcemap: 'hidden'` means dist/assets/*.js
+      # carries no sourceMappingURL comment, so removing their maps leaves
+      # nothing dangling. sw.js and workbox-*.js are left alone deliberately
+      # — those two do reference their own maps, and are small.
+      - name: Leave app sourcemaps out of the published site
+        run: rm -f dist/assets/*.map
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

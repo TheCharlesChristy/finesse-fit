@@ -7,7 +7,8 @@ import {
 } from '../plans.js';
 import { fromDisplayWeight, toDisplayWeight } from '../utils.js';
 import ExercisePicker from './ExercisePicker.jsx';
-import { DurationInput, Field, IconButton, Modal, NumberInput, Segmented, Toggle } from './ui.jsx';
+import { DurationInput, NumberInput, Toggle } from './inputs.jsx';
+import { Field, IconButton, Modal, Segmented } from './ui.jsx';
 
 const KIND_ICONS = { exercise: Dumbbell, circuit: Layers, cardio: Footprints, intervals: Repeat, rest: TimerReset };
 const ADDABLE = ['exercise', 'circuit', 'cardio', 'intervals', 'rest'];
@@ -125,13 +126,13 @@ function BlockEditor({ block, onChange, exercises, units, routes, recentIds }) {
           {block.items.map((item, index) => (
             <li key={index} className="circuit-item">
               <div className="split"><span className="eyebrow">Move {index + 1}</span>
-                {block.items.length > 1 && <IconButton label={`Remove move ${index + 1}`} className="btn-icon btn-icon-sm" onClick={() => patch({ items: block.items.filter((_, i) => i !== index) })}><X size={15} /></IconButton>}
+                {block.items.length > 1 && <IconButton label={`Remove move ${index + 1}`} className="btn-icon btn-sm" onClick={() => patch({ items: block.items.filter((_, i) => i !== index) })}><X size={15} /></IconButton>}
               </div>
               <MovementFields item={item} exercises={exercises} units={units} recentIds={recentIds} restLabel="Rest after this move" onChange={(changes) => setItem(index, changes)} />
             </li>
           ))}
         </ol>
-        <button type="button" className="btn-ghost" style={{ justifySelf: 'start' }} onClick={() => patch({ items: [...block.items, { ...block.items.at(-1), exerciseId: null }] })}><Plus size={16} /> Add a move</button>
+        <button type="button" className="btn-ghost add-move" onClick={() => patch({ items: [...block.items, { ...block.items.at(-1), exerciseId: null }] })}><Plus size={16} /> Add a move</button>
       </>
     );
   }
@@ -238,7 +239,22 @@ export default function PlanModal({ plan, exercises, routes = [], units, onClose
   const close = () => onClose(dirty);
 
   return (
-    <Modal title={plan?.id ? 'Edit plan' : 'Design a workout'} size="lg" onClose={close} onSubmit={() => save(false)}>
+    <Modal
+      title={plan?.id ? 'Edit plan' : 'Design a workout'}
+      size="lg"
+      onClose={close}
+      onSubmit={() => save(false)}
+      footer={({ formId }) => (
+        <>
+          {missingExercise && <span className="full modal-hint">Choose an exercise for every exercise block to save.</span>}
+          {plan?.id && onDelete && <button className="btn-danger" type="button" onClick={() => onDelete(plan.id)}><Trash2 size={18} aria-hidden="true" /> Delete</button>}
+          <span className="spacer" />
+          <button className="btn-secondary" type="button" onClick={close}>Cancel</button>
+          <button className="btn-secondary" type="submit" form={formId} disabled={invalid}><Save size={18} aria-hidden="true" /> Save</button>
+          <button className="btn-primary" type="button" disabled={invalid} onClick={() => save(true)}><Play size={18} aria-hidden="true" /> Save &amp; start</button>
+        </>
+      )}
+    >
       <div className="plan-head">
         <Field label="Name"><input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Push day, Tempo run…" autoCapitalize="sentences" /></Field>
         {blocks.length > 0 && (
@@ -278,10 +294,10 @@ export default function PlanModal({ plan, exercises, routes = [], units, onClose
                   </span>
                 </button>
                 <div className="plan-block-tools">
-                  <IconButton label="Move up" className="btn-icon btn-icon-sm" disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp size={15} /></IconButton>
-                  <IconButton label="Move down" className="btn-icon btn-icon-sm" disabled={index === blocks.length - 1} onClick={() => move(index, 1)}><ArrowDown size={15} /></IconButton>
-                  <IconButton label="Duplicate block" className="btn-icon btn-icon-sm" onClick={() => duplicate(index)}><Copy size={15} /></IconButton>
-                  <IconButton label="Remove block" className="btn-icon btn-icon-sm" onClick={() => remove(index)}><Trash2 size={15} /></IconButton>
+                  <IconButton label="Move up" className="btn-icon btn-sm" disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp size={15} /></IconButton>
+                  <IconButton label="Move down" className="btn-icon btn-sm" disabled={index === blocks.length - 1} onClick={() => move(index, 1)}><ArrowDown size={15} /></IconButton>
+                  <IconButton label="Duplicate block" className="btn-icon btn-sm" onClick={() => duplicate(index)}><Copy size={15} /></IconButton>
+                  <IconButton label="Remove block" className="btn-icon btn-sm" onClick={() => remove(index)}><Trash2 size={15} /></IconButton>
                 </div>
               </div>
               {expanded && <div className="plan-block-body stack"><BlockEditor block={block} onChange={(next) => update(index, next)} exercises={exercises} units={units} routes={routes} recentIds={recentIds} /></div>}
@@ -299,17 +315,6 @@ export default function PlanModal({ plan, exercises, routes = [], units, onClose
         </div>
       </div>
 
-      <div className="stack modal-footer" style={{ gap: 8 }}>
-        {missingExercise && <span className="muted modal-hint">Choose an exercise for every exercise block to save.</span>}
-        <div className="split modal-actions-split">
-          {plan?.id && onDelete ? <button className="btn-danger" type="button" onClick={() => onDelete(plan.id)}><Trash2 size={18} /> Delete</button> : <span />}
-          <div className="row">
-            <button className="btn-secondary" type="button" onClick={close}>Cancel</button>
-            <button className="btn-secondary" type="submit" disabled={invalid}><Save size={18} /> Save</button>
-            <button className="btn-primary" type="button" disabled={invalid} onClick={() => save(true)}><Play size={18} /> Save &amp; start</button>
-          </div>
-        </div>
-      </div>
     </Modal>
   );
 }

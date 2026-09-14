@@ -1,19 +1,33 @@
 import { useState } from 'react';
-import { Activity, Camera, CalendarCheck, ChevronLeft, ChevronRight, Flame, Plus, Scale, SwatchBook, Trash2, TrendingUp, Utensils } from 'lucide-react';
+import { Activity, Camera, CalendarCheck, ChevronLeft, ChevronRight, Flame, Scale, SwatchBook, Trash2, TrendingUp, Utensils } from 'lucide-react';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { MUSCLES } from '../data/exercises.js';
-import { CardTitle, EmptyState, IconButton, PageHeader } from '../components/ui.jsx';
+import { CardTitle, EmptyState, IconButton } from '../components/ui.jsx';
 import ProgressPhotos from '../components/ProgressPhotos.jsx';
 import WeekReview from '../components/WeekReview.jsx';
 import { TDEE_WINDOW_DAYS, bestSetsByDate, caloriesForRate, estimateTdee, fmtCalories, fmtDate, fmtMacro, fmtWeight, hitsTarget, lastNDays, muscleLabel, neglectedMuscles, shiftWeekKey, toDisplayWeight, weekKey, weekLabel, weeklyReview, weightRatePerWeek, weightTrend } from '../utils.js';
 
+/**
+ * How weekly volume is coloured on the muscle map: none → most.
+ *
+ * Every ramp is built from tokens, never from literal colours. A fixed ramp
+ * would look right under exactly one palette and one scheme, and the map's
+ * whole job is comparing regions against each other — which stops working the
+ * moment the darkest stop is lighter than the page it sits on.
+ */
 const COLOR_PRESETS = {
-  // Follows the app palette via the --heat-* tokens in index.css.
   palette: { label: 'Match palette', stops: ['var(--heat-0)', 'var(--heat-1)', 'var(--heat-2)', 'var(--heat-3)'] },
-  mintHeat: { label: 'Mint heat', stops: ['#14243a', '#5db8ff', '#4fffb0', '#fbbf70'] },
-  ember: { label: 'Ember', stops: ['#172033', '#ff6b8a', '#fbbf70', '#fff0a8'] },
-  marine: { label: 'Marine', stops: ['#111d31', '#5db8ff', '#4fffb0', '#f7fbff'] },
-  violet: { label: 'Violet', stops: ['#14182d', '#5db8ff', '#c084fc', '#ff6b8a'] }
+  spectrum: { label: 'Cool to warm', stops: ['var(--surface-2)', 'var(--accent-2)', 'var(--accent-3)', 'var(--accent-4)'] },
+  effort: { label: 'Effort', stops: ['var(--surface-2)', 'var(--good)', 'var(--warn)', 'var(--danger)'] },
+  mono: {
+    label: 'Mono',
+    stops: [
+      'var(--surface-2)',
+      'color-mix(in oklab, var(--text-primary) 28%, var(--surface-2))',
+      'color-mix(in oklab, var(--text-primary) 62%, var(--surface-2))',
+      'var(--text-primary)'
+    ]
+  }
 };
 
 const MUSCLE_REGIONS = [
@@ -100,7 +114,7 @@ const TOOLTIP_PROPS = {
   contentStyle: { background: 'var(--surface-raised)', border: '1px solid var(--line)', borderRadius: 12, color: 'var(--text-primary)', boxShadow: 'var(--shadow-lg)' },
   labelStyle: { color: 'var(--text-secondary)', fontWeight: 700 },
   itemStyle: { color: 'var(--text-primary)' },
-  cursor: { fill: 'rgba(127,127,127,0.12)' }
+  cursor: { fill: 'color-mix(in srgb, currentColor 10%, transparent)' }
 };
 const AXIS_PROPS = { stroke: 'var(--text-muted)', tick: { fill: 'var(--text-muted)', fontSize: 12 }, tickLine: false, axisLine: false };
 const GRID_PROPS = { stroke: 'var(--line)', vertical: false };
@@ -158,207 +172,209 @@ export default function Progress({ muscleVolume, workouts, exercises, bodyweight
   const displayUnitWeight = (value) => `${value} ${weightUnit}`;
 
   return (
-    <main className="page">
-      <PageHeader title="Progress" subtitle="Muscle volume, strength curves, nutrition adherence, and bodyweight trends.">
-        <button className="btn-primary" type="button" onClick={onLogBodyweight}><Plus size={18} /> Log bodyweight</button>
-      </PageHeader>
+    <div className="pair">
+      <section className="card panel stack">
+        <CardTitle
+          icon={Activity}
+          action={
+            <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
+              <SwatchBook size={17} aria-hidden="true" />
+              <select className="input input-inline input-sm" aria-label="Muscle map colours" value={colorPreset} onChange={(event) => setColorPreset(event.target.value)}>
+                {Object.entries(COLOR_PRESETS).map(([key, preset]) => <option key={key} value={key}>{preset.label}</option>)}
+              </select>
+            </label>
+          }
+        >
+          Muscle map
+        </CardTitle>
+        <div className="stepper">
+          <IconButton label="Previous week" onClick={() => setWeekOffset(weekOffset - 1)} disabled={!hasOlderVolume && weekOffset <= -8}><ChevronLeft size={18} /></IconButton>
+          <div style={{ textAlign: 'center' }}>
+            <strong>{weekOffset === 0 ? 'This week' : weekOffset === -1 ? 'Last week' : `${-weekOffset} weeks ago`}</strong>
+            <div className="muted">{weekLabel(selectedWeek)}</div>
+          </div>
+          <IconButton label="Next week" onClick={() => setWeekOffset(weekOffset + 1)} disabled={weekOffset >= 0}><ChevronRight size={18} /></IconButton>
+        </div>
+        <BodyMuscleMap rows={muscleRows} preset={colorPreset} highlight={new Set(neglected.map((row) => row.muscle))} />
+        <div className="muscle-legend">
+          <span className="muted">None</span>
+          <div className="muscle-legend-bar" style={{ background: `linear-gradient(90deg, ${COLOR_PRESETS[colorPreset].stops.join(', ')})` }} />
+          <span className="muted">Most</span>
+        </div>
+        {neglected.length > 0 && (
+          <div className="stack" style={{ gap: 6 }}>
+            <span className="meal-heading">Not trained in 10+ days · dashed on the map</span>
+            <div className="chip-row">
+              {neglected.map((row) => <span key={row.muscle} className="chip static">{muscleLabel(row.muscle)} · {row.days == null ? 'never' : `${row.days}d`}</span>)}
+            </div>
+          </div>
+        )}
+      </section>
 
-      <div className="progress-grid">
-        <section className="card panel stack">
-          <CardTitle
-            icon={Activity}
-            action={
-              <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
-                <SwatchBook size={17} aria-hidden="true" />
-                <select className="input compact-select" aria-label="Muscle map colours" value={colorPreset} onChange={(event) => setColorPreset(event.target.value)}>
-                  {Object.entries(COLOR_PRESETS).map(([key, preset]) => <option key={key} value={key}>{preset.label}</option>)}
-                </select>
-              </label>
-            }
-          >
-            Muscle map
-          </CardTitle>
-          <div className="split week-nav">
-            <IconButton label="Previous week" onClick={() => setWeekOffset(weekOffset - 1)} disabled={!hasOlderVolume && weekOffset <= -8}><ChevronLeft size={18} /></IconButton>
-            <div style={{ textAlign: 'center' }}>
-              <strong>{weekOffset === 0 ? 'This week' : weekOffset === -1 ? 'Last week' : `${-weekOffset} weeks ago`}</strong>
-              <div className="muted">{weekLabel(selectedWeek)}</div>
-            </div>
-            <IconButton label="Next week" onClick={() => setWeekOffset(weekOffset + 1)} disabled={weekOffset >= 0}><ChevronRight size={18} /></IconButton>
-          </div>
-          <BodyMuscleMap rows={muscleRows} preset={colorPreset} highlight={new Set(neglected.map((row) => row.muscle))} />
-          <div className="muscle-legend">
-            <span className="muted">None</span>
-            <div className="muscle-legend-bar" style={{ background: `linear-gradient(90deg, ${COLOR_PRESETS[colorPreset].stops.join(', ')})` }} />
-            <span className="muted">Most</span>
-          </div>
-          {neglected.length > 0 && (
-            <div className="stack" style={{ gap: 6 }}>
-              <span className="meal-heading">Not trained in 10+ days · dashed on the map</span>
-              <div className="chip-row">
-                {neglected.map((row) => <span key={row.muscle} className="chip static">{muscleLabel(row.muscle)} · {row.days == null ? 'never' : `${row.days}d`}</span>)}
-              </div>
-            </div>
+      <section className="card panel stack">
+        <CardTitle>Volume by muscle</CardTitle>
+        <span className="muted">{weekLabel(selectedWeek)} · primary muscles get full set volume, secondary get half.</span>
+        {rankedMuscles.length ? (
+          <ResponsiveContainer width="100%" height={Math.max(160, rankedMuscles.length * 30 + 20)}>
+            <BarChart data={rankedMuscles} layout="vertical" margin={{ left: 8, right: 16 }}>
+              <CartesianGrid {...GRID_PROPS} vertical horizontal={false} />
+              <XAxis type="number" {...AXIS_PROPS} tickFormatter={(value) => value.toLocaleString()} />
+              <YAxis type="category" dataKey="muscle" width={92} {...AXIS_PROPS} />
+              <Tooltip {...TOOLTIP_PROPS} formatter={(value) => [value.toLocaleString(), 'Volume']} />
+              <Bar dataKey="volume" fill="var(--accent)" radius={[0, 6, 6, 0]} barSize={16} />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : <EmptyState title="No volume this week">Log a workout to populate this chart.</EmptyState>}
+      </section>
+
+      <section className="card panel stack">
+        <CardTitle icon={CalendarCheck}>{weekOffset === 0 ? 'This week so far' : 'Week in review'}</CardTitle>
+        <span className="muted">{weekLabel(selectedWeek)} · use the arrows on the muscle map to change week</span>
+        {review.isEmpty ? <EmptyState title="Nothing logged this week" /> : <WeekReview review={review} units={units} />}
+      </section>
+
+      <section className="card panel stack">
+        <CardTitle
+          icon={TrendingUp}
+          action={trained.length > 0 && (
+            <select className="input input-inline input-sm" aria-label="Exercise" value={String(strengthExercise?.id ?? '')} onChange={(event) => setExerciseChoice(event.target.value)}>
+              {trained.map((exercise) => <option key={exercise.id} value={String(exercise.id)}>{exercise.name}</option>)}
+            </select>
           )}
-        </section>
+        >
+          Strength
+        </CardTitle>
+        {strength.length ? (
+          <>
+            <span className="muted">Best estimated 1RM per session{bestStrength ? ` · peak ${displayUnitWeight(bestStrength.e1rm)} on ${shortDate(bestStrength.date)}` : ''}</span>
+            <ResponsiveContainer width="100%" height={240}>
+              <AreaChart data={strength} margin={{ left: -8, right: 8 }}>
+                <CartesianGrid {...GRID_PROPS} />
+                <XAxis dataKey="date" tickFormatter={shortDate} {...AXIS_PROPS} minTickGap={24} />
+                <YAxis {...AXIS_PROPS} domain={['auto', 'auto']} width={48} />
+                <Tooltip {...TOOLTIP_PROPS} labelFormatter={(key) => fmtDate(key)} formatter={(value, _name, item) => [`${displayUnitWeight(value)} (${item.payload.weight} × ${item.payload.reps})`, 'e1RM']} />
+                <Area type="monotone" dataKey="e1rm" stroke="var(--accent-2)" strokeWidth={2.5} fill="var(--accent-2)" fillOpacity={0.18} dot={strength.length < 20} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </>
+        ) : <EmptyState title="No strength data">Your estimated one-rep max trend appears after workouts.</EmptyState>}
+      </section>
 
-        <section className="card panel stack">
-          <CardTitle>Volume by muscle</CardTitle>
-          <span className="muted">{weekLabel(selectedWeek)} · primary muscles get full set volume, secondary get half.</span>
-          {rankedMuscles.length ? (
-            <ResponsiveContainer width="100%" height={Math.max(160, rankedMuscles.length * 30 + 20)}>
-              <BarChart data={rankedMuscles} layout="vertical" margin={{ left: 8, right: 16 }}>
-                <CartesianGrid {...GRID_PROPS} vertical horizontal={false} />
-                <XAxis type="number" {...AXIS_PROPS} tickFormatter={(value) => value.toLocaleString()} />
-                <YAxis type="category" dataKey="muscle" width={92} {...AXIS_PROPS} />
-                <Tooltip {...TOOLTIP_PROPS} formatter={(value) => [value.toLocaleString(), 'Volume']} />
-                <Bar dataKey="volume" fill="var(--accent)" radius={[0, 6, 6, 0]} barSize={16} />
+      <section className="card panel stack">
+        <CardTitle
+          icon={Utensils}
+          action={
+            <select className="input input-inline input-sm" aria-label="Nutrition metric" value={nutritionMetric} onChange={(event) => setNutritionMetric(event.target.value)}>
+              <option value="calories">Calories</option><option value="protein">Protein</option><option value="carbs">Carbs</option><option value="fat">Fat</option>
+            </select>
+          }
+        >
+          Nutrition · 14 days
+        </CardTitle>
+        {loggedDays.length ? (
+          <>
+            <span className="muted">On target {hitDays} of 14 days · average {fmtNutrition(loggedDays.reduce((sum, row) => sum + row.value, 0) / loggedDays.length)} on logged days · target {fmtNutrition(target)}</span>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={nutritionRows} margin={{ left: -8, right: 8 }}>
+                <CartesianGrid {...GRID_PROPS} />
+                <XAxis dataKey="date" tickFormatter={(key) => fmtDate(key, 'EEEEE')} {...AXIS_PROPS} interval={0} />
+                <YAxis {...AXIS_PROPS} width={48} />
+                <Tooltip {...TOOLTIP_PROPS} labelFormatter={(key) => fmtDate(key)} formatter={(value) => [fmtNutrition(value), muscleLabel(nutritionMetric)]} />
+                <ReferenceLine y={target} stroke="var(--accent-4)" strokeDasharray="4 4" />
+                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                  {nutritionRows.map((row) => <Cell key={row.date} fill={row.hit ? 'var(--accent)' : row.value > target ? 'var(--danger)' : 'var(--accent-2)'} />)}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
-          ) : <EmptyState title="No volume this week">Log a workout to populate this chart.</EmptyState>}
-        </section>
+            <div className="row muted chart-key">
+              <span><i style={{ background: 'var(--accent)' }} /> on target</span>
+              <span><i style={{ background: 'var(--accent-2)' }} /> under</span>
+              <span><i style={{ background: 'var(--danger)' }} /> over</span>
+            </div>
+          </>
+        ) : <EmptyState title="No food logged recently">Days you log food will be compared with your targets here.</EmptyState>}
+      </section>
 
-        <section className="card panel stack">
-          <CardTitle icon={CalendarCheck}>{weekOffset === 0 ? 'This week so far' : 'Week in review'}</CardTitle>
-          <span className="muted">{weekLabel(selectedWeek)} · use the arrows on the muscle map to change week</span>
-          {review.isEmpty ? <EmptyState title="Nothing logged this week" /> : <WeekReview review={review} units={units} />}
-        </section>
+      <section className="card panel stack">
+        <CardTitle icon={Flame}>Energy balance</CardTitle>
+        {energy.ready ? (
+          <>
+            <div className="split" style={{ alignItems: 'flex-end' }}>
+              <div>
+                <div className="metric">{fmtCalories(energy.tdee)}</div>
+                <span className="muted">estimated maintenance{energy.confidence === 'rough' ? ' · rough — keep logging' : ''}</span>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <strong>{fmtCalories(profile.targets.calories)}</strong>
+                <div className="muted">current target ({profile.targets.calories - energy.tdee >= 0 ? '+' : '−'}{Math.abs(profile.targets.calories - energy.tdee)})</div>
+              </div>
+            </div>
+            <span className="secondary">
+              Over the last {TDEE_WINDOW_DAYS} days you averaged {fmtCalories(energy.avgIntake)} on {energy.loggedDays} logged days while your weight moved {energy.kgPerWeek > 0 ? '+' : energy.kgPerWeek < 0 ? '−' : '±'}{fmtWeight(Math.abs(energy.kgPerWeek), units)}/week.
+            </span>
+            <div className="rate-presets">
+              {ratePresets.map((preset) => (
+                <button key={preset.label} type="button" className={`list-row rate-preset ${preset.calories === profile.targets.calories ? 'active' : ''}`} onClick={() => onApplyCalories(preset.calories, preset.kgPerWeek === 0 ? 'maintain' : `${preset.kgPerWeek > 0 ? '+' : '−'}${fmtWeight(Math.abs(preset.kgPerWeek), units)}/week`)}>
+                  <strong>{preset.label}</strong>
+                  <span className="nowrap">{fmtCalories(preset.calories)}</span>
+                  <span className="muted nowrap">{preset.kgPerWeek === 0 ? 'hold weight' : `${preset.kgPerWeek > 0 ? '+' : '−'}${fmtWeight(Math.abs(preset.kgPerWeek), units)}/wk`}</span>
+                </button>
+              ))}
+            </div>
+            <span className="muted">An estimate from your own logs — it gets more accurate the more consistently you log food and weigh in.</span>
+          </>
+        ) : (
+          <EmptyState title="Not enough data yet">
+            Needs food logged on {energy.minLoggedDays}+ of the last {TDEE_WINDOW_DAYS} days (you have {energy.loggedDays}) and {energy.minWeighIns}+ weigh-ins spread over at least a week (you have {energy.weighIns}). Then Finesse Fit estimates your real maintenance calories.
+          </EmptyState>
+        )}
+      </section>
 
-        <section className="card panel stack">
-          <CardTitle
-            icon={TrendingUp}
-            action={trained.length > 0 && (
-              <select className="input compact-select" aria-label="Exercise" value={String(strengthExercise?.id ?? '')} onChange={(event) => setExerciseChoice(event.target.value)}>
-                {trained.map((exercise) => <option key={exercise.id} value={String(exercise.id)}>{exercise.name}</option>)}
-              </select>
+      <section className="card panel stack">
+        <CardTitle icon={Scale}>Bodyweight</CardTitle>
+        {weightRows.length ? (
+          <>
+            {weightRate != null && (
+              <span className="muted">
+                Trend {displayUnitWeight(weightRows.at(-1).trend)} · {weightRate > 0 ? '+' : weightRate < 0 ? '−' : '±'}{fmtWeight(Math.abs(weightRate), units)}/week over 4 weeks
+              </span>
             )}
-          >
-            Strength
-          </CardTitle>
-          {strength.length ? (
-            <>
-              <span className="muted">Best estimated 1RM per session{bestStrength ? ` · peak ${displayUnitWeight(bestStrength.e1rm)} on ${shortDate(bestStrength.date)}` : ''}</span>
-              <ResponsiveContainer width="100%" height={240}>
-                <AreaChart data={strength} margin={{ left: -8, right: 8 }}>
+            {weightRows.length > 1 && (
+              <ResponsiveContainer width="100%" height={220}>
+                <ComposedChart data={weightRows} margin={{ left: -8, right: 8 }}>
                   <CartesianGrid {...GRID_PROPS} />
                   <XAxis dataKey="date" tickFormatter={shortDate} {...AXIS_PROPS} minTickGap={24} />
-                  <YAxis {...AXIS_PROPS} domain={['auto', 'auto']} width={48} />
-                  <Tooltip {...TOOLTIP_PROPS} labelFormatter={(key) => fmtDate(key)} formatter={(value, _name, item) => [`${displayUnitWeight(value)} (${item.payload.weight} × ${item.payload.reps})`, 'e1RM']} />
-                  <Area type="monotone" dataKey="e1rm" stroke="var(--accent-2)" strokeWidth={2.5} fill="var(--accent-2)" fillOpacity={0.18} dot={strength.length < 20} />
-                </AreaChart>
+                  <YAxis {...AXIS_PROPS} width={48} domain={[(min) => Math.floor(min - 1), (max) => Math.ceil(max + 1)]} />
+                  <Tooltip {...TOOLTIP_PROPS} labelFormatter={(key) => fmtDate(key)} formatter={(value, name) => [displayUnitWeight(value), name === 'trend' ? '7-day trend' : 'Weigh-in']} />
+                  <Area type="monotone" dataKey="trend" stroke="var(--accent-3)" strokeWidth={2.5} fill="var(--accent-3)" fillOpacity={0.16} dot={false} />
+                  <Line type="monotone" dataKey="weight" stroke="none" dot={{ r: 3, fill: 'var(--text-muted)', strokeWidth: 0 }} activeDot={{ r: 5 }} isAnimationActive={false} />
+                </ComposedChart>
               </ResponsiveContainer>
-            </>
-          ) : <EmptyState title="No strength data">Your estimated one-rep max trend appears after workouts.</EmptyState>}
-        </section>
-
-        <section className="card panel stack">
-          <CardTitle
-            icon={Utensils}
-            action={
-              <select className="input compact-select" aria-label="Nutrition metric" value={nutritionMetric} onChange={(event) => setNutritionMetric(event.target.value)}>
-                <option value="calories">Calories</option><option value="protein">Protein</option><option value="carbs">Carbs</option><option value="fat">Fat</option>
-              </select>
-            }
+            )}
+            <div className="list">
+              {bodyweightLogs.slice(-5).reverse().map((row) => (
+                <div key={row.id} className="list-row split compact">
+                  <span><strong>{fmtWeight(row.weight, units)}</strong><span className="muted"> · {fmtDate(row.date)}</span></span>
+                  <IconButton label={`Delete ${fmtDate(row.date)} entry`} onClick={() => onDeleteBodyweight(row.id)}><Trash2 size={16} /></IconButton>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <EmptyState
+            icon={Scale}
+            title="No weigh-ins yet"
+            action={<button className="btn-secondary" type="button" onClick={onLogBodyweight}>Log bodyweight</button>}
           >
-            Nutrition · 14 days
-          </CardTitle>
-          {loggedDays.length ? (
-            <>
-              <span className="muted">On target {hitDays} of 14 days · average {fmtNutrition(loggedDays.reduce((sum, row) => sum + row.value, 0) / loggedDays.length)} on logged days · target {fmtNutrition(target)}</span>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={nutritionRows} margin={{ left: -8, right: 8 }}>
-                  <CartesianGrid {...GRID_PROPS} />
-                  <XAxis dataKey="date" tickFormatter={(key) => fmtDate(key, 'EEEEE')} {...AXIS_PROPS} interval={0} />
-                  <YAxis {...AXIS_PROPS} width={48} />
-                  <Tooltip {...TOOLTIP_PROPS} labelFormatter={(key) => fmtDate(key)} formatter={(value) => [fmtNutrition(value), muscleLabel(nutritionMetric)]} />
-                  <ReferenceLine y={target} stroke="var(--accent-4)" strokeDasharray="4 4" />
-                  <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                    {nutritionRows.map((row) => <Cell key={row.date} fill={row.hit ? 'var(--accent)' : row.value > target ? 'var(--danger)' : 'var(--accent-2)'} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-              <div className="row muted chart-key">
-                <span><i style={{ background: 'var(--accent)' }} /> on target</span>
-                <span><i style={{ background: 'var(--accent-2)' }} /> under</span>
-                <span><i style={{ background: 'var(--danger)' }} /> over</span>
-              </div>
-            </>
-          ) : <EmptyState title="No food logged recently">Days you log food will be compared with your targets here.</EmptyState>}
-        </section>
+            A few entries a week is enough for a trend line.
+          </EmptyState>
+        )}
+      </section>
 
-        <section className="card panel stack">
-          <CardTitle icon={Flame}>Energy balance</CardTitle>
-          {energy.ready ? (
-            <>
-              <div className="split" style={{ alignItems: 'flex-end' }}>
-                <div>
-                  <div className="metric">{fmtCalories(energy.tdee)}</div>
-                  <span className="muted">estimated maintenance{energy.confidence === 'rough' ? ' · rough — keep logging' : ''}</span>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <strong>{fmtCalories(profile.targets.calories)}</strong>
-                  <div className="muted">current target ({profile.targets.calories - energy.tdee >= 0 ? '+' : '−'}{Math.abs(profile.targets.calories - energy.tdee)})</div>
-                </div>
-              </div>
-              <span className="secondary">
-                Over the last {TDEE_WINDOW_DAYS} days you averaged {fmtCalories(energy.avgIntake)} on {energy.loggedDays} logged days while your weight moved {energy.kgPerWeek > 0 ? '+' : energy.kgPerWeek < 0 ? '−' : '±'}{fmtWeight(Math.abs(energy.kgPerWeek), units)}/week.
-              </span>
-              <div className="rate-presets">
-                {ratePresets.map((preset) => (
-                  <button key={preset.label} type="button" className={`list-row rate-preset ${preset.calories === profile.targets.calories ? 'active' : ''}`} onClick={() => onApplyCalories(preset.calories, preset.kgPerWeek === 0 ? 'maintain' : `${preset.kgPerWeek > 0 ? '+' : '−'}${fmtWeight(Math.abs(preset.kgPerWeek), units)}/week`)}>
-                    <strong>{preset.label}</strong>
-                    <span className="nowrap">{fmtCalories(preset.calories)}</span>
-                    <span className="muted nowrap">{preset.kgPerWeek === 0 ? 'hold weight' : `${preset.kgPerWeek > 0 ? '+' : '−'}${fmtWeight(Math.abs(preset.kgPerWeek), units)}/wk`}</span>
-                  </button>
-                ))}
-              </div>
-              <span className="muted">An estimate from your own logs — it gets more accurate the more consistently you log food and weigh in.</span>
-            </>
-          ) : (
-            <EmptyState title="Not enough data yet">
-              Needs food logged on {energy.minLoggedDays}+ of the last {TDEE_WINDOW_DAYS} days (you have {energy.loggedDays}) and {energy.minWeighIns}+ weigh-ins spread over at least a week (you have {energy.weighIns}). Then Finesse Fit estimates your real maintenance calories.
-            </EmptyState>
-          )}
-        </section>
-
-        <section className="card panel stack">
-          <CardTitle icon={Scale}>Bodyweight</CardTitle>
-          {weightRows.length ? (
-            <>
-              {weightRate != null && (
-                <span className="muted">
-                  Trend {displayUnitWeight(weightRows.at(-1).trend)} · {weightRate > 0 ? '+' : weightRate < 0 ? '−' : '±'}{fmtWeight(Math.abs(weightRate), units)}/week over 4 weeks
-                </span>
-              )}
-              {weightRows.length > 1 && (
-                <ResponsiveContainer width="100%" height={220}>
-                  <ComposedChart data={weightRows} margin={{ left: -8, right: 8 }}>
-                    <CartesianGrid {...GRID_PROPS} />
-                    <XAxis dataKey="date" tickFormatter={shortDate} {...AXIS_PROPS} minTickGap={24} />
-                    <YAxis {...AXIS_PROPS} width={48} domain={[(min) => Math.floor(min - 1), (max) => Math.ceil(max + 1)]} />
-                    <Tooltip {...TOOLTIP_PROPS} labelFormatter={(key) => fmtDate(key)} formatter={(value, name) => [displayUnitWeight(value), name === 'trend' ? '7-day trend' : 'Weigh-in']} />
-                    <Area type="monotone" dataKey="trend" stroke="var(--accent-3)" strokeWidth={2.5} fill="var(--accent-3)" fillOpacity={0.16} dot={false} />
-                    <Line type="monotone" dataKey="weight" stroke="none" dot={{ r: 3, fill: 'var(--text-muted)', strokeWidth: 0 }} activeDot={{ r: 5 }} isAnimationActive={false} />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              )}
-              <div className="list">
-                {bodyweightLogs.slice(-5).reverse().map((row) => (
-                  <div key={row.id} className="list-row split compact">
-                    <span><strong>{fmtWeight(row.weight, units)}</strong><span className="muted"> · {fmtDate(row.date)}</span></span>
-                    <IconButton label={`Delete ${fmtDate(row.date)} entry`} onClick={() => onDeleteBodyweight(row.id)}><Trash2 size={16} /></IconButton>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : <EmptyState title="No bodyweight logs">Add one from the button above.</EmptyState>}
-        </section>
-
-        <section className="card panel stack">
-          <CardTitle icon={Camera}>Progress photos</CardTitle>
-          <ProgressPhotos photos={photos} onAdd={onAddPhoto} onDelete={onDeletePhoto} />
-        </section>
-      </div>
-    </main>
+      <section className="card panel stack">
+        <CardTitle icon={Camera}>Progress photos</CardTitle>
+        <ProgressPhotos photos={photos} onAdd={onAddPhoto} onDelete={onDeletePhoto} />
+      </section>
+    </div>
   );
 }

@@ -4,7 +4,8 @@ import { fmtDistance, haversine, pathDistance } from '../geo.js';
 import { routeLeg } from '../routingApi.js';
 import RouteMap from './RouteMap.jsx';
 import { getCurrentFix, locationAlreadyAllowed } from './useGeolocation.js';
-import { Field, Modal, Toggle } from './ui.jsx';
+import { Toggle } from './inputs.jsx';
+import { Field, Modal } from './ui.jsx';
 
 const legKey = (a, b, follow) => `${follow ? 'p' : 's'}:${a[0]},${a[1]}>${b[0]},${b[1]}`;
 const straight = (a, b) => ({ path: [a, b], distance: haversine(a, b), routed: false });
@@ -108,10 +109,24 @@ export default function RoutePlannerModal({ route, defaultCenter, units, onClose
   };
 
   const canSave = path.length > 1 && distance > 0 && !pending;
-  const save = () => canSave && onSave({ ...(route ?? {}), name: name.trim() || `${fmtDistance(distance, units)} route`, waypoints, path, distance, followPaths });
+  const save = (options) => canSave && onSave({ ...(route ?? {}), name: name.trim() || `${fmtDistance(distance, units)} route`, waypoints, path, distance, followPaths }, options);
 
   return (
-    <Modal title={route?.id ? 'Edit route' : 'Plan a route'} size="lg" onClose={() => onClose(dirty)} onSubmit={save}>
+    <Modal
+      title={route?.id ? 'Edit route' : 'Plan a route'}
+      size="lg"
+      onClose={() => onClose(dirty)}
+      onSubmit={() => save()}
+      footer={({ formId }) => (
+        <>
+          {route?.id && onDelete && <button className="btn-danger" type="button" onClick={() => onDelete(route.id)}><Trash2 size={18} aria-hidden="true" /> Delete</button>}
+          <span className="spacer" />
+          <button className="btn-secondary" type="button" onClick={() => onClose(dirty)}>Cancel</button>
+          <button className="btn-secondary" type="submit" form={formId} disabled={!canSave}><Save size={18} aria-hidden="true" /> Save</button>
+          {onRun && <button className="btn-primary" type="button" disabled={!canSave} onClick={() => save({ thenRun: true })}><Play size={18} aria-hidden="true" /> Save &amp; run</button>}
+        </>
+      )}
+    >
       <div className="route-planner">
         <RouteMap
           className="route-planner-map"
@@ -143,16 +158,6 @@ export default function RoutePlannerModal({ route, defaultCenter, units, onClose
         <Toggle checked={followPaths} onChange={setFollowPaths} hint="Snaps each leg to streets and footpaths. Sends only the two points being joined to OpenStreetMap’s routing service.">Follow paths</Toggle>
       </div>
       <span className="muted map-privacy">Map images come from OpenStreetMap, which sees the area you’re viewing. Your saved routes and runs stay on this device.</span>
-      <div className="stack modal-footer" style={{ gap: 8 }}>
-        <div className="split modal-actions-split">
-          {route?.id && onDelete ? <button className="btn-danger" type="button" onClick={() => onDelete(route.id)}><Trash2 size={18} /> Delete</button> : <span />}
-          <div className="row">
-            <button className="btn-secondary" type="button" onClick={() => onClose(dirty)}>Cancel</button>
-            <button className="btn-secondary" type="submit" disabled={!canSave}><Save size={18} /> Save</button>
-            {onRun && <button className="btn-primary" type="button" disabled={!canSave} onClick={() => canSave && onSave({ ...(route ?? {}), name: name.trim() || `${fmtDistance(distance, units)} route`, waypoints, path, distance, followPaths }, { thenRun: true })}><Play size={18} /> Save &amp; run</button>}
-          </div>
-        </div>
-      </div>
     </Modal>
   );
 }
