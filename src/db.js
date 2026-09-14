@@ -1,5 +1,6 @@
 import Dexie from 'dexie';
 import { SEEDED_EXERCISES } from './data/exercise-library/index.js';
+import { normalizePlan } from './plans.js';
 import { DEFAULT_GOAL_MIX, DEFAULT_TARGET_BODY_FAT, addTotals, attributeVolume, calculateNutritionTargets, dateKey, normalizeBodyCompositionTargets, round, scaleNutrition, setLoad, setVolume, weekKey } from './utils.js';
 
 export const db = new Dexie('FinesseFit');
@@ -62,6 +63,28 @@ db.version(4).stores({
   photos: '++id, date'
 });
 
+// v5: workout plans reuse `templates` (no index change); GPS tracks, saved
+// routes, and the in-progress live session. Tracks live in their own table,
+// not on the workout row, so the app-wide workouts query never drags a
+// thousand GPS points per run into memory.
+db.version(5).stores({
+  profile: '++id',
+  foods: '++id, barcode, name',
+  foodLogs: '++id, date, mealType',
+  dailyTotals: '++id, &date',
+  exercises: '++id, name',
+  workouts: '++id, date',
+  muscleVolume: '++id, muscle, weekKey',
+  bodyweightLogs: '++id, date',
+  goals: '++id, type',
+  meals: '++id, name',
+  templates: '++id, name',
+  photos: '++id, date',
+  tracks: '++id, workoutId',
+  routes: '++id, name',
+  activeSession: 'id'
+});
+
 export const DEFAULT_PROFILE = {
   id: 1,
   units: 'metric',
@@ -77,11 +100,14 @@ export const DEFAULT_PROFILE = {
   palette: 'mint'
 };
 
-const TABLES = ['profile', 'foods', 'foodLogs', 'dailyTotals', 'exercises', 'workouts', 'muscleVolume', 'bodyweightLogs', 'goals', 'meals', 'templates'];
+const TABLES = ['profile', 'foods', 'foodLogs', 'dailyTotals', 'exercises', 'workouts', 'muscleVolume', 'bodyweightLogs', 'goals', 'meals', 'templates', 'routes', 'tracks'];
 // Photos hold raw image bytes, not JSON-friendly data — they're excluded from
 // exportData()/importData() (see photos.js) but must still be wiped by a full
 // reset, so clearAllData() clears TABLES + BINARY_TABLES together.
 const BINARY_TABLES = ['photos'];
+// Device-local working state (a half-finished workout) — not a record worth
+// backing up, but a full reset still wipes it.
+const DEVICE_TABLES = ['activeSession'];
 
 const stripId = ({ id: _id, ...row }) => row;
 const findSeed = (id) => SEEDED_EXERCISES.find((exercise) => String(exercise.id) === String(id));
@@ -118,7 +144,8 @@ async function normaliseSets(sets = [], suppliedExercises = []) {
   const exercises = [...SEEDED_EXERCISES, ...custom, ...suppliedExercises];
   const bodyweight = (await db.bodyweightLogs.orderBy('date').last())?.weight ?? (await db.profile.get(1))?.bodyweight ?? 0;
   return sets
-    .filter((set) => set.exerciseId && Number(set.reps) > 0)
+    // Timed sets (a 60 s plank) have no reps but are still real work.
+    .filter((set) => set.exerciseId && (Number(set.reps) > 0 || Number(set.seconds) > 0))
     .map((set) => {
       const exercise = exercises.find((item) => String(item.id) === String(set.exerciseId)) ?? findSeed(set.exerciseId);
       const volume = setVolume(set, setLoad(set, exercise, bodyweight));
@@ -126,7 +153,8 @@ async function normaliseSets(sets = [], suppliedExercises = []) {
         // <select> hands back strings; keep the exercise's real id type so
         // numeric custom-exercise ids survive export/import remapping.
         exerciseId: exercise?.id ?? set.exerciseId,
-        reps: Number(set.reps),
+        reps: Number(set.reps) || 0,
+        ...(Number(set.seconds) > 0 ? { seconds: Math.round(Number(set.seconds)) } : {}),
         weight: Number(set.weight) || 0,
         rpe: set.rpe === '' || set.rpe == null ? null : Number(set.rpe),
         volume,
@@ -171,7 +199,7 @@ async function removeRow(table, id) {
 }
 
 // Undo for simple tables (no derived counters): put the row back with its original id.
-const RESTORABLE = new Set(['foods', 'bodyweightLogs', 'goals', 'meals', 'templates', 'photos']);
+const RESTORABLE = new Set(['foods', 'bodyweightLogs', 'goals', 'meals', 'templates', 'photos', 'routes']);
 export function restoreRow(table, row) {
   if (!RESTORABLE.has(table)) throw new Error(`Cannot restore ${table}`);
   return db[table].put(row);
@@ -293,14 +321,35 @@ export const deleteExercise = (id) => db.exercises.delete(id);
 export const getWorkouts = () => db.workouts.orderBy('date').reverse().toArray();
 export const getMuscleVolume = () => db.muscleVolume.orderBy('weekKey').reverse().toArray();
 
+// Fields a workout row may carry besides date/sets — live sessions add cardio
+// segments and timing. Anything else (a stray `track`, an `id`) is dropped.
+const WORKOUT_EXTRAS = ['name', 'planId', 'startedAt', 'durationSeconds', 'movingSeconds', 'elevationGain', 'cardio', 'distance', 'routeId', 'routePreview'];
+const workoutExtras = (input) => Object.fromEntries(WORKOUT_EXTRAS.filter((key) => input[key] !== undefined).map((key) => [key, input[key]]));
+
+// Must run inside a transaction covering workouts + exercises + muscleVolume + bodyweightLogs + profile.
+async function insertWorkout(input, exercises) {
+  const workout = { ...workoutExtras(input), date: input.date, sets: await normaliseSets(input.sets, exercises) };
+  const id = await db.workouts.add(workout);
+  await adjustMuscleVolume(workout.date, collectAttribution(workout.sets), 1);
+  return id;
+}
+
 export async function addWorkout(input, exercises = []) {
-  return db.transaction('rw', db.workouts, db.exercises, db.muscleVolume, db.bodyweightLogs, db.profile, async () => {
-    const workout = { date: input.date, sets: await normaliseSets(input.sets, exercises) };
-    const id = await db.workouts.add(workout);
-    await adjustMuscleVolume(workout.date, collectAttribution(workout.sets), 1);
+  return db.transaction('rw', db.workouts, db.exercises, db.muscleVolume, db.bodyweightLogs, db.profile, () => insertWorkout(input, exercises));
+}
+
+// A finished live session: the workout (sets → muscleVolume as usual) plus its
+// GPS track, written together so a run is never saved without its route.
+export async function saveSessionWorkout({ workout, track }, exercises = []) {
+  return db.transaction('rw', [db.workouts, db.exercises, db.muscleVolume, db.bodyweightLogs, db.profile, db.tracks, db.activeSession], async () => {
+    const id = await insertWorkout(workout, exercises);
+    if (track?.segments?.length) await db.tracks.add({ workoutId: id, activity: track.activity ?? 'run', segments: track.segments });
+    await db.activeSession.clear();
     return id;
   });
 }
+
+export const getTrackForWorkout = (workoutId) => (workoutId == null ? undefined : db.tracks.where('workoutId').equals(workoutId).first());
 
 export async function updateWorkout(id, updates, exercises = []) {
   return db.transaction('rw', db.workouts, db.exercises, db.muscleVolume, db.bodyweightLogs, db.profile, async () => {
@@ -313,30 +362,62 @@ export async function updateWorkout(id, updates, exercises = []) {
   });
 }
 
+// Returns the removed workout with its GPS track (if any) attached as `track`,
+// so Undo can put both back.
 export async function deleteWorkout(id) {
-  return db.transaction('rw', db.workouts, db.muscleVolume, async () => {
+  return db.transaction('rw', db.workouts, db.muscleVolume, db.tracks, async () => {
     const old = await db.workouts.get(id);
     if (!old) return undefined;
+    const track = await db.tracks.where('workoutId').equals(id).first();
     await db.workouts.delete(id);
+    if (track) await db.tracks.delete(track.id);
     await adjustMuscleVolume(old.date, collectAttribution(old.sets), -1);
-    return old;
+    return track ? { ...old, track } : old;
   });
 }
 
 // Restores with the original frozen attribution, not a recomputation.
-export async function restoreWorkout(workout) {
-  return db.transaction('rw', db.workouts, db.muscleVolume, async () => {
+export async function restoreWorkout({ track, ...workout }) {
+  return db.transaction('rw', db.workouts, db.muscleVolume, db.tracks, async () => {
     await db.workouts.put(workout);
+    if (track) await db.tracks.put(track);
     await adjustMuscleVolume(workout.date, collectAttribution(workout.sets), 1);
   });
 }
 
-export const getTemplates = () => db.templates.orderBy('name').toArray();
-export const addTemplate = (template) => db.templates.add({
-  name: template.name,
-  sets: (template.sets ?? []).map((set) => ({ exerciseId: set.exerciseId, reps: Number(set.reps) || 0, weight: Number(set.weight) || 0, rpe: set.rpe ?? null }))
+// ---- Workout plans ----
+// Stored in `templates` (the table predates plans). Rows saved before blocks
+// existed are `{ name, sets }`; normalizePlan() reads both shapes.
+export const getPlans = async () => (await db.templates.orderBy('name').toArray()).map(normalizePlan);
+export const addPlan = (plan) => {
+  const { id: _id, ...clean } = normalizePlan(plan);
+  return db.templates.add({ ...clean, createdAt: new Date().toISOString() });
+};
+export const updatePlan = (id, plan) => {
+  const { id: _id, ...clean } = normalizePlan(plan);
+  return db.templates.put({ ...clean, id, updatedAt: new Date().toISOString() });
+};
+export const deletePlan = (id) => removeRow('templates', id);
+
+// ---- Routes (planned on the map) ----
+// { name, waypoints: [[lat, lon]], path: [[lat, lon]], distance (m), followPaths }
+export const getRoutes = () => db.routes.orderBy('name').toArray();
+const cleanRoute = (route) => ({
+  name: String(route.name ?? '').trim() || 'Route',
+  waypoints: route.waypoints ?? [],
+  path: route.path ?? [],
+  distance: Math.round(Number(route.distance) || 0),
+  followPaths: Boolean(route.followPaths)
 });
-export const deleteTemplate = (id) => removeRow('templates', id);
+export const addRoute = (route) => db.routes.add({ ...cleanRoute(route), createdAt: new Date().toISOString() });
+export const updateRoute = (id, route) => db.routes.update(id, cleanRoute(route));
+export const deleteRoute = (id) => removeRow('routes', id);
+
+// ---- The live session in progress (singleton, id 1) ----
+export const hasActiveSession = () => db.activeSession.count();
+export const getActiveSession = () => db.activeSession.get(1);
+export const saveActiveSession = (state) => db.activeSession.put({ ...state, id: 1, savedAt: Date.now() });
+export const clearActiveSession = () => db.activeSession.clear();
 
 export const getBodyweightLogs = () => db.bodyweightLogs.orderBy('date').toArray();
 export const addBodyweightLog = (row) => db.bodyweightLogs.add({ date: row.date, weight: Number(row.weight) });
@@ -347,7 +428,7 @@ export const updateGoal = (id, updates) => db.goals.update(id, updates);
 export const deleteGoal = (id) => removeRow('goals', id);
 
 export async function exportData() {
-  const payload = { version: 3, exportedAt: new Date().toISOString() };
+  const payload = { version: 4, exportedAt: new Date().toISOString() };
   for (const table of TABLES) payload[table] = await db[table].toArray();
   return payload;
 }
@@ -370,11 +451,27 @@ export async function importData(data, mode = 'merge') {
     // Keys are stringified: ids may round-trip as numbers or strings depending on where they were stored.
     const foodMap = new Map();
     const exerciseMap = new Map();
+    const routeMap = new Map();
+    const planMap = new Map();
+    const workoutMap = new Map();
     const remapExercise = (id) => exerciseMap.get(key(id)) ?? id;
+    const remap = (map, id) => (id == null ? id : map.get(key(id)) ?? id);
     if (data.profile?.[0]) await db.profile.put({ ...DEFAULT_PROFILE, ...data.profile[0], id: 1, onboarded: true });
     else if (mode === 'replace') await db.profile.put(DEFAULT_PROFILE);
     for (const food of data.foods ?? []) foodMap.set(key(food.id), await db.foods.add(stripId(food)));
     for (const exercise of data.exercises ?? []) exerciseMap.set(key(exercise.id), await db.exercises.add(stripId(exercise)));
+    for (const route of data.routes ?? []) routeMap.set(key(route.id), await db.routes.add(stripId(route)));
+    for (const row of data.templates ?? []) {
+      const plan = stripId(row);
+      const blocks = plan.blocks?.map((block) => ({
+        ...block,
+        ...(block.exerciseId != null ? { exerciseId: remapExercise(block.exerciseId) } : {}),
+        ...(block.items ? { items: block.items.map((item) => ({ ...item, exerciseId: remapExercise(item.exerciseId) })) } : {}),
+        ...(block.routeId != null ? { routeId: remap(routeMap, block.routeId) } : {})
+      }));
+      const sets = plan.sets?.map((set) => ({ ...set, exerciseId: remapExercise(set.exerciseId) }));
+      planMap.set(key(row.id), await db.templates.add({ ...plan, ...(blocks ? { blocks } : {}), ...(sets ? { sets } : {}) }));
+    }
     for (const row of data.foodLogs ?? []) await db.foodLogs.add({ ...stripId(row), foodId: foodMap.get(key(row.foodId)) ?? row.foodId });
     for (const row of data.dailyTotals ?? []) {
       const existing = await db.dailyTotals.where('date').equals(row.date).first();
@@ -383,7 +480,12 @@ export async function importData(data, mode = 'merge') {
     }
     for (const row of data.workouts ?? []) {
       const sets = (row.sets ?? []).map((set) => ({ ...set, exerciseId: remapExercise(set.exerciseId) }));
-      await db.workouts.add({ ...stripId(row), sets });
+      const extras = { ...(row.planId != null ? { planId: remap(planMap, row.planId) } : {}), ...(row.routeId != null ? { routeId: remap(routeMap, row.routeId) } : {}) };
+      workoutMap.set(key(row.id), await db.workouts.add({ ...stripId(row), ...extras, sets }));
+    }
+    // A track whose workout isn't in the backup has nothing to belong to.
+    for (const row of data.tracks ?? []) {
+      if (workoutMap.has(key(row.workoutId))) await db.tracks.add({ ...stripId(row), workoutId: workoutMap.get(key(row.workoutId)) });
     }
     for (const row of data.muscleVolume ?? []) {
       const existing = await db.muscleVolume.where('muscle').equals(row.muscle).and((item) => item.weekKey === row.weekKey).first();
@@ -394,15 +496,13 @@ export async function importData(data, mode = 'merge') {
     for (const row of data.meals ?? []) {
       await db.meals.add({ ...stripId(row), items: (row.items ?? []).map((item) => ({ ...item, foodId: foodMap.get(key(item.foodId)) ?? item.foodId })) });
     }
-    for (const row of data.templates ?? []) {
-      await db.templates.add({ ...stripId(row), sets: (row.sets ?? []).map((set) => ({ ...set, exerciseId: remapExercise(set.exerciseId) })) });
-    }
     for (const row of data.goals ?? []) await db.goals.add(row.exerciseId == null ? stripId(row) : { ...stripId(row), exerciseId: remapExercise(row.exerciseId) });
   });
 }
 
-export const clearAllData = () => db.transaction('rw', ...[...TABLES, ...BINARY_TABLES].map((table) => db[table]), async () => {
-  await Promise.all([...TABLES, ...BINARY_TABLES].map((table) => db[table].clear()));
+const ALL_TABLES = [...TABLES, ...BINARY_TABLES, ...DEVICE_TABLES];
+export const clearAllData = () => db.transaction('rw', ALL_TABLES.map((table) => db[table]), async () => {
+  await Promise.all(ALL_TABLES.map((table) => db[table].clear()));
   await db.profile.put(DEFAULT_PROFILE);
 });
 

@@ -1,16 +1,24 @@
 import { createElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Apple, Dumbbell, Home, LoaderCircle, Menu, Settings as SettingsIcon, Trophy, X } from 'lucide-react';
+import ActivityModal from './components/ActivityModal.jsx';
 import BarcodeScanner from './components/BarcodeScanner.jsx';
 import { BodyweightModal, ExerciseModal, FoodModal, GoalModal, LogFoodModal, LogMealModal, ProfileModal, QuickAddModal, WorkoutModal } from './components/Modals.jsx';
+import PlanModal from './components/PlanModal.jsx';
+import RoutePlannerModal from './components/RoutePlannerModal.jsx';
 import ScanLabelModal from './components/ScanLabelModal.jsx';
+import WorkoutSession from './components/WorkoutSession.jsx';
 import { useDialog } from './components/useDialog.jsx';
 import { SEEDED_EXERCISES } from './data/exercise-library/index.js';
 import { DEFAULT_PALETTE, paletteExists } from './data/palettes.js';
 import * as data from './db.js';
+import { primeAudio } from './cues.js';
 import { resolveBarcode, saveSearchResult, searchFoods } from './foodApi.js';
+import { buildGpx, fmtClock, fmtDistance, samplePath, trackDistance, trackLatLngs } from './geo.js';
 import { buildPhoto } from './photos.js';
-import { shareJson } from './share.js';
+import { normalizePlan } from './plans.js';
+import { createSession, resumeSession, sessionPlanUpdate, sessionToWorkout } from './session.js';
+import { shareFile, shareJson, SHARE_CANCELLED } from './share.js';
 import { getPersistenceState, getStorageEstimate, requestPersistence as requestStoragePersistence, STORAGE_BEST_EFFORT, STORAGE_PERSISTED } from './storage.js';
 import { dateKey, exerciseName, findPersonalRecords, fmtCalories, fmtWeight, mealItemsFromLogs, mealLabel, retargetCalories, snoozeUntil } from './utils.js';
 import Dashboard from './views/Dashboard.jsx';
@@ -156,6 +164,14 @@ export default function App() {
   const progressPhotos = useLiveQuery(data.getProgressPhotos, [], []);
   const goals = useLiveQuery(data.getGoals, [], []);
   const meals = useLiveQuery(data.getMeals, [], []);
+  const plans = useLiveQuery(data.getPlans, [], []);
+  const routes = useLiveQuery(data.getRoutes, [], []);
+  // undefined until loaded, so a stored session can be told apart from "none".
+  const activeSessionCount = useLiveQuery(data.hasActiveSession, [], undefined);
+  const activityTrack = useLiveQuery(() => data.getTrackForWorkout(modal?.type === 'activity' ? modal.workout.id : null), [modal?.type, modal?.workout?.id]);
+  const [session, setSession] = useState(null);
+  const [sessionMinimized, setSessionMinimized] = useState(false);
+  const pendingQuickStart = useRef(null);
   const [storageState, setStorageState] = useState(null);
   const [storageEstimate, setStorageEstimate] = useState(null);
   const [onlineSearch, setOnlineSearch] = useState(null);
@@ -247,6 +263,11 @@ export default function App() {
       setModal({ type: 'workout' });
     } else if (action === 'food') {
       setViewState('logFood');
+    } else if (action === 'run') {
+      setTrainingSection('workouts');
+      setViewState('training');
+      // Started once we know whether a session is already in progress.
+      pendingQuickStart.current = 'run';
     }
   }, []);
 
@@ -395,6 +416,135 @@ export default function App() {
     closeModal();
   }, 'Goal saved');
 
+  // ---- Plans, live sessions, routes ----
+
+  const closeWithConfirm = async (dirty, message = 'Your changes haven’t been saved.') => {
+    if (!dirty || await confirm(message, 'Discard changes?', { confirmLabel: 'Discard', danger: true })) closeModal();
+  };
+
+  const startSession = async ({ plan, name = 'Workout', blocks = [] }) => {
+    primeAudio(); // still inside the tap, so later beeps are allowed to play
+    if (session && !(await confirm(`“${session.initial.name}” is still in progress. Discard it and start a new workout?`, 'Start a new workout?', { confirmLabel: 'Discard & start', danger: true }))) {
+      setSessionMinimized(false);
+      return;
+    }
+    const state = createSession({ plan: plan ?? { name, blocks }, now: Date.now(), workouts, settings: profile.sessionSettings });
+    const saved = await run(() => data.saveActiveSession(state));
+    if (saved === undefined) return;
+    closeModal();
+    setSession({ initial: state, key: Date.now() });
+    setSessionMinimized(false);
+  };
+
+  const quickStart = (kind) => (kind === 'run'
+    ? startSession({ name: 'Run', blocks: [{ kind: 'cardio', activity: 'run', gps: true, goal: { type: 'open' } }] })
+    : startSession({ name: 'Workout', blocks: [] }));
+
+  const runRoute = (route) => startSession({ name: route.name, blocks: [{ kind: 'cardio', activity: 'run', gps: true, routeId: route.id, goal: { type: 'distance', meters: route.distance } }] });
+
+  // Pick a half-finished workout back up after a reload (or the phone killing the app).
+  const sessionChecked = useRef(false);
+  useEffect(() => {
+    if (sessionChecked.current || activeSessionCount === undefined) return;
+    sessionChecked.current = true;
+    if (activeSessionCount > 0) {
+      data.getActiveSession().then((saved) => saved && setSession({ initial: resumeSession(saved, Date.now()), key: Date.now() }));
+    } else if (pendingQuickStart.current) {
+      quickStart(pendingQuickStart.current);
+    }
+    pendingQuickStart.current = null;
+    // quickStart only needs to run with whatever this first render has.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionCount]);
+
+  const persistSession = useCallback((state) => data.saveActiveSession(state).catch(() => {}), []);
+
+  const finishSession = async (state, { updatePlan, now }) => {
+    const { workout, track } = sessionToWorkout(state, { now });
+    if (!workout.sets.length && !workout.cardio.length) return false;
+    if (track) workout.routePreview = samplePath(trackLatLngs(track.segments).flat(), 60);
+    const records = findPersonalRecords(workouts, workout.sets);
+    const plan = updatePlan ? plans.find((item) => item.id === state.planId) : null;
+    const saved = await run(async () => {
+      await data.saveSessionWorkout({ workout, track }, exercises);
+      if (plan) await data.updatePlan(plan.id, { ...plan, blocks: sessionPlanUpdate(state) });
+      return true;
+    });
+    if (!saved) return false;
+    setSession(null);
+    setSessionMinimized(false);
+    setTrainingSection('workouts');
+    const summary = [workout.distance > 0 ? fmtDistance(workout.distance, profile.units) : null, workout.sets.length ? `${workout.sets.length} sets` : null, fmtClock(workout.durationSeconds)].filter(Boolean).join(' · ');
+    if (records.length) {
+      const [top] = records;
+      notify(`New PR: ${exerciseName(exercises, top.exerciseId)} ${fmtWeight(top.e1rm, profile.units)} e1RM${records.length > 1 ? ` +${records.length - 1} more` : ''}`, { tone: 'good', icon: 'trophy', duration: 5000 });
+    } else {
+      notify(`Workout saved · ${summary}`, { tone: 'good', duration: 4000 });
+    }
+    return true;
+  };
+
+  const discardSession = async () => {
+    if (!(await confirm('Nothing from this workout will be saved.', 'Discard workout?', { confirmLabel: 'Discard', danger: true }))) return false;
+    await data.clearActiveSession();
+    setSession(null);
+    setSessionMinimized(false);
+    notify('Workout discarded');
+    return true;
+  };
+
+  const savePlan = async (plan, { start } = {}) => {
+    const saved = await run(async () => {
+      if (plan.id) {
+        await data.updatePlan(plan.id, plan);
+        return plan;
+      }
+      return { ...plan, id: await data.addPlan(plan) };
+    }, start ? null : 'Plan saved');
+    if (!saved) return;
+    closeModal();
+    if (start) startSession({ plan: normalizePlan(saved) });
+  };
+
+  const deletePlan = async (id) => {
+    closeModal();
+    await removeWithUndo(() => data.deletePlan(id), (row) => data.restoreRow('templates', row), 'Plan deleted');
+  };
+
+  const saveRoute = async (route, { thenRun } = {}) => {
+    const saved = await run(async () => {
+      if (route.id) {
+        await data.updateRoute(route.id, route);
+        return route;
+      }
+      return { ...route, id: await data.addRoute(route) };
+    }, thenRun ? null : 'Route saved');
+    if (!saved) return;
+    closeModal();
+    if (thenRun) runRoute(saved);
+  };
+
+  const deleteRoute = async (id) => {
+    closeModal();
+    await removeWithUndo(() => data.deleteRoute(id), (row) => data.restoreRow('routes', row), 'Route deleted');
+  };
+
+  const exportGpx = async (workout, track) => {
+    const name = workout.name || 'Run';
+    const blob = new Blob([buildGpx({ name, segments: track.segments, activity: track.activity })], { type: 'application/gpx+xml' });
+    const outcome = await shareFile({ blob, filename: `finesse-fit-${workout.date}-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.gpx`, title: name });
+    if (outcome !== SHARE_CANCELLED) notify(outcome === 'shared' ? 'GPX shared' : 'GPX downloaded', { tone: 'good' });
+  };
+
+  const saveTrackAsRoute = async (workout, track) => {
+    const name = await prompt('Save this run’s path as a route you can run again.', 'Save as route', 'Route name', { confirmLabel: 'Save route', defaultValue: workout.name && workout.name !== 'Run' ? workout.name : `${fmtDistance(workout.distance, profile.units)} route`, autoCapitalize: 'sentences' });
+    if (!name?.trim()) return;
+    const path = samplePath(trackLatLngs(track.segments).flat(), 1000);
+    await run(() => data.addRoute({ name: name.trim(), waypoints: [], path, distance: workout.distance || trackDistance(track.segments), followPaths: false }), `Saved “${name.trim()}”`);
+  };
+
+  const lastKnownPlace = workouts.find((workout) => workout.routePreview?.length)?.routePreview[0] ?? routes.find((route) => route.path?.length)?.path[0] ?? null;
+
   const handleScan = useCallback(async (code) => {
     setScannerOpen(false);
     notify(`Looking up ${code}…`, { busy: true });
@@ -481,7 +631,7 @@ export default function App() {
   const viewProps = { profile, foods, foodLogs, dailyTotals, workouts, muscleVolume, bodyweightLogs, goals, exercises, meals, today };
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${session && sessionMinimized ? 'session-docked' : ''}`}>
       <Sidebar view={view} setView={setView} />
       <div className="page">
         <MobileNav view={view} setView={setView} />
@@ -535,6 +685,23 @@ export default function App() {
             photos={progressPhotos}
             onLogBodyweight={() => setModal({ type: 'bodyweight' })}
             onDeleteBodyweight={(id) => removeWithUndo(() => data.deleteBodyweightLog(id), (row) => data.restoreRow('bodyweightLogs', row), 'Entry deleted')}
+            workoutProps={{
+              plans,
+              routes,
+              sessionName: session ? session.initial.name : null,
+              onOpenSession: () => setSessionMinimized(false),
+              onStartPlan: (plan) => startSession({ plan }),
+              onQuickStart: quickStart,
+              onNewPlan: () => setModal({ type: 'plan' }),
+              onEditPlan: (plan) => setModal({ type: 'plan', plan }),
+              onDuplicatePlan: (plan) => run(() => data.addPlan({ ...plan, id: undefined, name: `${plan.name} (copy)` }), 'Plan duplicated'),
+              onDeletePlan: deletePlan,
+              onPlanRoute: () => setModal({ type: 'route' }),
+              onEditRoute: (route) => setModal({ type: 'route', route }),
+              onRunRoute: runRoute,
+              onDeleteRoute: deleteRoute,
+              onOpenActivity: (workout) => setModal({ type: 'activity', workout })
+            }}
             onApplyCalories={applyCalorieTarget}
             onAddPhoto={addPhoto}
             onDeletePhoto={(id) => removeWithUndo(() => data.deleteProgressPhoto(id), (row) => data.restoreRow('photos', row), 'Photo deleted')}
@@ -580,6 +747,50 @@ export default function App() {
       {modal?.type === 'bodyweight' && <BodyweightModal units={profile.units} latest={latestBodyweight} onClose={closeModal} onSave={(row) => run(async () => { await data.addBodyweightLog(row); closeModal(); }, 'Bodyweight logged')} />}
       {modal?.type === 'quickAdd' && <QuickAddModal log={modal.log} onClose={closeModal} onSave={saveQuickLog} onDelete={deleteFoodLog} />}
       {modal?.type === 'logMeal' && <LogMealModal meal={modal.meal} onClose={closeModal} onLog={logMeal} onDelete={deleteMeal} />}
+      {modal?.type === 'plan' && <PlanModal plan={modal.plan} exercises={exercises} routes={routes} units={profile.units} onClose={(dirty) => closeWithConfirm(dirty)} onSave={savePlan} onDelete={deletePlan} />}
+      {modal?.type === 'route' && (
+        <RoutePlannerModal
+          route={modal.route}
+          defaultCenter={lastKnownPlace}
+          units={profile.units}
+          onClose={(dirty) => closeWithConfirm(dirty)}
+          onSave={saveRoute}
+          onDelete={deleteRoute}
+          onRun={runRoute}
+          onNotice={(message) => notify(message, { duration: 4000 })}
+        />
+      )}
+      {modal?.type === 'activity' && (
+        <ActivityModal
+          workout={workouts.find((workout) => workout.id === modal.workout.id) ?? modal.workout}
+          track={activityTrack}
+          exercises={exercises}
+          units={profile.units}
+          onClose={closeModal}
+          onEditSets={(workout) => setModal({ type: 'workout', workout })}
+          onDelete={(id) => { closeModal(); deleteWorkout(id); }}
+          onExportGpx={exportGpx}
+          onSaveRoute={saveTrackAsRoute}
+        />
+      )}
+      {session && (
+        <WorkoutSession
+          key={session.key}
+          initial={session.initial}
+          plan={plans.find((plan) => plan.id === session.initial.planId) ?? null}
+          exercises={exercises}
+          workouts={workouts}
+          routes={routes}
+          units={profile.units}
+          minimized={sessionMinimized}
+          onMinimize={() => setSessionMinimized(true)}
+          onExpand={() => setSessionMinimized(false)}
+          onPersist={persistSession}
+          onFinish={finishSession}
+          onDiscard={discardSession}
+          onSettingsChange={(sessionSettings) => data.updateProfile({ sessionSettings })}
+        />
+      )}
       {Dialog}
       <Toast notice={notice} onDismiss={dismissNotice} />
     </div>

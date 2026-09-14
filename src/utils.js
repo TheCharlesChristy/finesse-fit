@@ -1,4 +1,5 @@
 import { addDays, addWeeks, format, getISOWeek, getISOWeekYear, isValid, parseISO, startOfISOWeek } from 'date-fns';
+import { fmtClock, fmtDistance, fmtPace, paceOf } from './geo.js';
 
 export const SECONDARY_WEIGHT = 0.5;
 export const KG_TO_LB = 2.2046226218;
@@ -680,11 +681,17 @@ export function buildAiContext({ today, profile, totals = {}, meals = [], todayW
   lines.push("TODAY'S WORKOUT");
   if (todayWorkouts.length) {
     for (const workout of todayWorkouts) {
+      if (workout.name) lines.push(`${workout.name}${workout.durationSeconds ? ` (${fmtClock(workout.durationSeconds)})` : ''}:`);
+      for (const segment of workout.cardio ?? []) {
+        const pace = paceOf(segment.seconds, segment.meters);
+        lines.push(`- ${segment.label || segment.activity}: ${[segment.meters > 0 ? fmtDistance(segment.meters, units) : null, segment.seconds > 0 ? fmtClock(segment.seconds) : null, pace ? fmtPace(pace, units) : null].filter(Boolean).join(', ')}`);
+      }
       const bySet = new Map();
       for (const set of workout.sets ?? []) {
         const name = exerciseName(exercises, set.exerciseId);
         const rpe = set.rpe != null ? ` @RPE${set.rpe}` : '';
-        const entry = number(set.weight) > 0 ? `${fmtWeight(set.weight, units)} × ${set.reps}${rpe}` : `${set.reps} reps${rpe}`;
+        const amount = set.seconds ? `${set.seconds}s` : set.reps;
+        const entry = number(set.weight) > 0 ? `${fmtWeight(set.weight, units)} × ${amount}${rpe}` : `${set.seconds ? amount : `${set.reps} reps`}${rpe}`;
         if (!bySet.has(name)) bySet.set(name, []);
         bySet.get(name).push(entry);
       }

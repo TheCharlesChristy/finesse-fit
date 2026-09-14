@@ -12,7 +12,7 @@ const SECTIONS = [
 
 export default function Training({
   section = 'workouts', onSectionChange,
-  workouts, exercises, units, today, onAddWorkout, onRepeatWorkout, onEditWorkout, onDeleteWorkout,
+  workouts, exercises, units, today, onAddWorkout, onRepeatWorkout, onEditWorkout, onDeleteWorkout, workoutProps = {},
   muscleVolume, bodyweightLogs, dailyTotals, profile, photos, onLogBodyweight, onDeleteBodyweight, onApplyCalories, onAddPhoto, onDeletePhoto,
   goals, goalData, onAddGoal, onEditGoal, onDeleteGoal
 }) {
@@ -38,6 +38,7 @@ export default function Training({
           onRepeatWorkout={onRepeatWorkout}
           onEditWorkout={onEditWorkout}
           onDeleteWorkout={onDeleteWorkout}
+          {...workoutProps}
         />
       )}
       {activeSection === 'progress' && (
