@@ -35,28 +35,37 @@ export function useDialog() {
   };
 
   const Dialog = dialog ? (
-    <Modal key={dialog.key} title={dialog.title} size="sm" onClose={() => close(dialog.cancelValue)} onSubmit={submit}>
-      <p className="secondary" style={{ margin: 0 }}>{dialog.message}</p>
+    <Modal
+      key={dialog.key}
+      title={dialog.title}
+      size="sm"
+      onClose={() => close(dialog.cancelValue)}
+      onSubmit={submit}
+      footer={({ formId }) => (
+        <>
+          <span className="spacer" />
+          {dialog.type === 'choose' ? (
+            <>
+              <button className="btn-secondary" type="button" onClick={() => close(null)}>Cancel</button>
+              {dialog.options.map((option) => (
+                <button key={option.value} className={`btn-${option.variant ?? 'secondary'}`} type="button" onClick={() => close(option.value)}>{option.label}</button>
+              ))}
+            </>
+          ) : (
+            <>
+              {dialog.type !== 'alert' && <button className="btn-secondary" type="button" onClick={() => close(dialog.cancelValue)}>Cancel</button>}
+              <button className={dialog.danger ? 'btn-danger' : 'btn-primary'} type="submit" form={formId}>{dialog.confirmLabel ?? 'OK'}</button>
+            </>
+          )}
+        </>
+      )}
+    >
+      <p className="secondary">{dialog.message}</p>
       {dialog.type === 'prompt' && (
         <Field label={dialog.placeholder || 'Value'}>
           <input className="input" autoComplete="off" autoCapitalize={dialog.autoCapitalize} value={value} onChange={(event) => setValue(event.target.value)} />
         </Field>
       )}
-      <div className="row modal-actions">
-        {dialog.type === 'choose' ? (
-          <>
-            <button className="btn-secondary" type="button" onClick={() => close(null)}>Cancel</button>
-            {dialog.options.map((option) => (
-              <button key={option.value} className={`btn-${option.variant ?? 'secondary'}`} type="button" onClick={() => close(option.value)}>{option.label}</button>
-            ))}
-          </>
-        ) : (
-          <>
-            {dialog.type !== 'alert' && <button className="btn-secondary" type="button" onClick={() => close(dialog.cancelValue)}>Cancel</button>}
-            <button className={dialog.danger ? 'btn-danger' : 'btn-primary'} type="submit">{dialog.confirmLabel ?? 'OK'}</button>
-          </>
-        )}
-      </div>
     </Modal>
   ) : null;
 

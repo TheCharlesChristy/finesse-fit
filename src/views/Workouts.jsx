@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Dumbbell, Pencil, Plus, Repeat, Trash2, Trophy, X } from 'lucide-react';
-import { CardTitle, EmptyState, OverflowMenu, PageHeader, SearchInput } from '../components/ui.jsx';
+import { CardTitle, EmptyState, OverflowMenu, SearchInput } from '../components/ui.jsx';
 import { EXERCISE_CATEGORIES, EXERCISE_EQUIPMENT, categoryForExercise, categoryLabel } from '../data/exercise-library/index.js';
 import { exerciseName, fmtRelativeDay, fmtWeight, muscleLabel, personalRecordsByWorkout, summariseSets } from '../utils.js';
 
@@ -52,105 +52,107 @@ export default function Workouts({ workouts, exercises, units, today, onAddWorko
   const records = personalRecordsByWorkout(workouts);
 
   return (
-    <main className="page">
-      <PageHeader title="Workouts" subtitle="Tap a session to edit it. Muscle volume is frozen when you save.">
-        <button className="btn-primary" type="button" onClick={onAddWorkout}><Plus size={18} /> Log workout</button>
-      </PageHeader>
-
-      <div className="layout-split">
-        <div className="layout-main">
-          <section className="card panel stack">
-            <CardTitle icon={Dumbbell} action={workouts.length ? <span className="title-meta">{workouts.length} total</span> : null}>Sessions</CardTitle>
-            <div className="list">
-              {workouts.slice(0, limit).map((workout) => {
-                const groups = summariseSets(workout.sets);
-                const prs = records.get(workout.id);
-                return (
-                  <div key={workout.id} className="list-row session-row">
-                    <button type="button" className="session-main" onClick={() => onEditWorkout(workout)}>
-                      <span className="session-title">
-                        <strong>{fmtRelativeDay(workout.date, today)}</strong>
-                        <span className="muted">{workout.sets?.length ?? 0} sets</span>
-                        {prs && <span className="pr-badge"><Trophy size={12} /> {prs.size} PR{prs.size > 1 ? 's' : ''}</span>}
-                      </span>
-                      <span className="session-lines">
-                        {groups.map((group) => (
-                          <span key={String(group.exerciseId)} className="session-line">
-                            <span className="truncate">
-                              {exerciseName(exercises, group.exerciseId)} <span className="muted">× {group.sets}</span>
-                              {prs?.has(String(group.exerciseId)) && <Trophy size={12} className="inline-trophy" aria-label="Personal record" />}
-                            </span>
-                            <span className="nowrap muted">{group.best.weight ? fmtWeight(group.best.weight, units) : 'BW'} × {group.best.reps}{group.best.rpe ? ` @${group.best.rpe}` : ''}</span>
+    <div className="layout-split">
+      <div className="layout-main">
+        <section className="card panel stack">
+          <CardTitle icon={Dumbbell} action={workouts.length ? <span className="title-meta">{workouts.length} total</span> : null}>Sessions</CardTitle>
+          <div className="list">
+            {workouts.slice(0, limit).map((workout) => {
+              const groups = summariseSets(workout.sets);
+              const prs = records.get(workout.id);
+              return (
+                <div key={workout.id} className="list-row session-row">
+                  <button type="button" className="session-main" onClick={() => onEditWorkout(workout)}>
+                    <span className="session-title">
+                      <strong>{fmtRelativeDay(workout.date, today)}</strong>
+                      <span className="muted">{workout.sets?.length ?? 0} sets</span>
+                      {prs && <span className="pr-badge"><Trophy size={12} /> {prs.size} PR{prs.size > 1 ? 's' : ''}</span>}
+                    </span>
+                    <span className="session-lines">
+                      {groups.map((group) => (
+                        <span key={String(group.exerciseId)} className="session-line">
+                          <span className="truncate">
+                            {exerciseName(exercises, group.exerciseId)} <span className="muted">× {group.sets}</span>
+                            {prs?.has(String(group.exerciseId)) && <Trophy size={12} className="inline-trophy" aria-label="Personal record" />}
                           </span>
-                        ))}
-                      </span>
-                    </button>
-                    <OverflowMenu
-                      label="Session actions"
-                      items={[
-                        { label: 'Edit', icon: <Pencil size={16} />, onSelect: () => onEditWorkout(workout) },
-                        { label: 'Repeat today', icon: <Repeat size={16} />, onSelect: () => onRepeatWorkout(workout) },
-                        { label: 'Delete', icon: <Trash2 size={16} />, danger: true, onSelect: () => onDeleteWorkout(workout.id) }
-                      ]}
-                    />
-                  </div>
-                );
-              })}
-              {workouts.length > limit && <button className="btn-ghost" type="button" onClick={() => setLimit(limit + PAGE)} style={{ justifySelf: 'center' }}>Show older sessions</button>}
-              {!workouts.length && <EmptyState title="No workouts yet">Log a few sets and Progress will light up straight away.</EmptyState>}
-            </div>
-          </section>
-        </div>
-
-        <div className="layout-aside">
-          <section className="card panel stack">
-            <CardTitle icon={Dumbbell} action={<span className="title-meta">{library.length} exercises</span>}>Exercise library</CardTitle>
-            <div className="exercise-library-toolbar">
-              <div className="exercise-library-search-row">
-                <div className="exercise-library-search">
-                  <SearchInput label="Search exercise library" placeholder="Search by name, muscle or equipment" value={libraryQuery} onChange={(value) => { setLibraryQuery(value); setLibraryLimit(LIBRARY_PAGE); }} />
-                </div>
-                {libraryHasFilters && <button type="button" className="btn-icon btn-icon-quiet" aria-label="Clear exercise library filters" title="Clear filters" onClick={resetLibrary}><X size={18} /></button>}
-              </div>
-              <div className="exercise-library-folders" role="tablist" aria-label="Exercise library folders">
-                <button type="button" role="tab" aria-selected={libraryFolder === 'all'} className={`chip ${libraryFolder === 'all' ? 'active' : ''}`} onClick={() => { setLibraryFolder('all'); setLibraryLimit(LIBRARY_PAGE); }}>All <span>{library.length}</span></button>
-                {EXERCISE_CATEGORIES.filter((category) => libraryCounts[category.id]).map((category) => (
-                  <button key={category.id} type="button" role="tab" aria-selected={libraryFolder === category.id} className={`chip ${libraryFolder === category.id ? 'active' : ''}`} onClick={() => { setLibraryFolder(category.id); setLibraryLimit(LIBRARY_PAGE); }}>
-                    {category.label} <span>{libraryCounts[category.id]}</span>
+                          <span className="nowrap muted">{group.best.weight ? fmtWeight(group.best.weight, units) : 'BW'} × {group.best.reps}{group.best.rpe ? ` @${group.best.rpe}` : ''}</span>
+                        </span>
+                      ))}
+                    </span>
                   </button>
-                ))}
-              </div>
-              <div className="exercise-library-filter-row">
-                <div className="exercise-library-summary" aria-live="polite">
-                  <span><strong>{filteredLibrary.length}</strong> match{filteredLibrary.length === 1 ? '' : 'es'}</span>
-                  {libraryHasFilters && <button type="button" className="btn-link" onClick={resetLibrary}>Clear filters</button>}
+                  <OverflowMenu
+                    label="Session actions"
+                    items={[
+                      { label: 'Edit', icon: <Pencil size={16} />, onSelect: () => onEditWorkout(workout) },
+                      { label: 'Repeat today', icon: <Repeat size={16} />, onSelect: () => onRepeatWorkout(workout) },
+                      { label: 'Delete', icon: <Trash2 size={16} />, danger: true, onSelect: () => onDeleteWorkout(workout.id) }
+                    ]}
+                  />
                 </div>
-                <label className="exercise-library-equipment"><span className="sr-only">Equipment</span><select className="input compact-select" aria-label="Filter library by equipment" value={libraryEquipment} onChange={updateLibraryFilter(setLibraryEquipment)}>
-                  <option value="all">All equipment</option>
-                  {EXERCISE_EQUIPMENT.filter((item) => item !== 'other').map((item) => <option key={item} value={item}>{equipmentLabel(item)}</option>)}
-                </select></label>
-              </div>
-            </div>
-            <div className="exercise-library-results">
-              {visibleLibrary.map((exercise) => (
-                <article key={exercise.id} className="exercise-library-item">
-                  <div className="exercise-library-item-heading"><strong>{exercise.name}</strong>{exercise.type && exercise.type !== 'strength' && <span className="library-type">{muscleLabel(exercise.type)}</span>}</div>
-                  <div className="exercise-library-meta">
-                    <span className="library-tag library-tag-category">{categoryLabel(categoryForExercise(exercise))}</span>
-                    <span className="library-tag">{equipmentLabel(exercise.equipment)}</span>
-                    {exerciseTargets(exercise) && <span className="exercise-library-targets">{exerciseTargets(exercise)}</span>}
-                  </div>
-                </article>
-              ))}
-              {!visibleLibrary.length && <EmptyState title="No matching exercises">Try another folder, equipment filter or search term.</EmptyState>}
-            </div>
-            {visibleLibrary.length < filteredLibrary.length && <button type="button" className="btn-secondary exercise-library-more" onClick={() => setLibraryLimit((limit) => limit + LIBRARY_PAGE)}>
-              Show more <span className="muted">({filteredLibrary.length - visibleLibrary.length} remaining)</span>
-            </button>}
-              {visibleLibrary.length > 0 && <span className="muted list-note">Showing {visibleLibrary.length} of {filteredLibrary.length} matches.</span>}
-          </section>
-        </div>
+              );
+            })}
+            {workouts.length > limit && <button className="btn-ghost" type="button" onClick={() => setLimit(limit + PAGE)} style={{ justifySelf: 'center' }}>Show older sessions</button>}
+            {!workouts.length && (
+              <EmptyState
+                icon={Dumbbell}
+                title="No workouts yet"
+                action={<button className="btn-primary" type="button" onClick={onAddWorkout}><Plus size={18} aria-hidden="true" /> Log your first workout</button>}
+              >
+                Log a few sets and Progress lights up straight away.
+              </EmptyState>
+            )}
+          </div>
+        </section>
       </div>
-    </main>
+
+      <div className="layout-aside">
+        <section className="card panel stack">
+          <CardTitle icon={Dumbbell} action={<span className="title-meta">{library.length} exercises</span>}>Exercise library</CardTitle>
+          <div className="exercise-library-toolbar">
+            <div className="exercise-library-search-row">
+              <div className="exercise-library-search">
+                <SearchInput label="Search exercise library" placeholder="Search by name, muscle or equipment" value={libraryQuery} onChange={(value) => { setLibraryQuery(value); setLibraryLimit(LIBRARY_PAGE); }} />
+              </div>
+              {libraryHasFilters && <button type="button" className="btn-icon btn-icon-quiet" aria-label="Clear exercise library filters" title="Clear filters" onClick={resetLibrary}><X size={18} /></button>}
+            </div>
+            <div className="exercise-library-folders" role="tablist" aria-label="Exercise library folders">
+              <button type="button" role="tab" aria-selected={libraryFolder === 'all'} className={`chip ${libraryFolder === 'all' ? 'active' : ''}`} onClick={() => { setLibraryFolder('all'); setLibraryLimit(LIBRARY_PAGE); }}>All <span>{library.length}</span></button>
+              {EXERCISE_CATEGORIES.filter((category) => libraryCounts[category.id]).map((category) => (
+                <button key={category.id} type="button" role="tab" aria-selected={libraryFolder === category.id} className={`chip ${libraryFolder === category.id ? 'active' : ''}`} onClick={() => { setLibraryFolder(category.id); setLibraryLimit(LIBRARY_PAGE); }}>
+                  {category.label} <span>{libraryCounts[category.id]}</span>
+                </button>
+              ))}
+            </div>
+            <div className="exercise-library-filter-row">
+              <div className="toolbar-summary" aria-live="polite">
+                <span><strong>{filteredLibrary.length}</strong> match{filteredLibrary.length === 1 ? '' : 'es'}</span>
+                {libraryHasFilters && <button type="button" className="btn-ghost" onClick={resetLibrary}>Clear filters</button>}
+              </div>
+              <label className="exercise-library-equipment"><span className="sr-only">Equipment</span><select className="input input-inline input-sm" aria-label="Filter library by equipment" value={libraryEquipment} onChange={updateLibraryFilter(setLibraryEquipment)}>
+                <option value="all">All equipment</option>
+                {EXERCISE_EQUIPMENT.filter((item) => item !== 'other').map((item) => <option key={item} value={item}>{equipmentLabel(item)}</option>)}
+              </select></label>
+            </div>
+          </div>
+          <div className="exercise-library-results">
+            {visibleLibrary.map((exercise) => (
+              <article key={exercise.id} className="exercise-library-item">
+                <div className="exercise-library-item-heading"><strong>{exercise.name}</strong>{exercise.type && exercise.type !== 'strength' && <span className="badge highlight">{muscleLabel(exercise.type)}</span>}</div>
+                <div className="exercise-library-meta">
+                  <span className="badge accent">{categoryLabel(categoryForExercise(exercise))}</span>
+                  <span className="badge">{equipmentLabel(exercise.equipment)}</span>
+                  {exerciseTargets(exercise) && <span className="exercise-library-targets">{exerciseTargets(exercise)}</span>}
+                </div>
+              </article>
+            ))}
+            {!visibleLibrary.length && <EmptyState title="No matching exercises">Try another folder, equipment filter or search term.</EmptyState>}
+          </div>
+          {visibleLibrary.length < filteredLibrary.length && <button type="button" className="btn-secondary exercise-library-more" onClick={() => setLibraryLimit((limit) => limit + LIBRARY_PAGE)}>
+            Show more <span className="muted">({filteredLibrary.length - visibleLibrary.length} remaining)</span>
+          </button>}
+            {visibleLibrary.length > 0 && <span className="muted list-note">Showing {visibleLibrary.length} of {filteredLibrary.length} matches.</span>}
+        </section>
+      </div>
+    </div>
   );
 }
