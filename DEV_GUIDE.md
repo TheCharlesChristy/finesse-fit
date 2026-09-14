@@ -84,7 +84,8 @@ src/
     ├── ScanLabelModal.jsx# Photo → OCR → parsed macros, hands off to FoodModal's `prefill`
     ├── RestTimer.jsx     # Rest countdown bar in the workout editor
     ├── WeekReview.jsx    # Weekly summary stat grid
-    ├── PaletteSelect.jsx # Accessible palette dropdown with live swatches
+    ├── AppShell.jsx      # SHARED — sidebar, mobile tab bar, "More" sheet
+    ├── AppearanceSettings.jsx # SHARED — palette / finish / density panel
     ├── useRestTimer.js   # Timestamp-based rest timer hook
     └── BarcodeScanner.jsx# Camera capture + decode
 ```
@@ -419,50 +420,78 @@ Views receive data as props and call callbacks for mutations — they do not rea
 
 ---
 
-## Design system (`src/index.css`)
+## Design system
 
-The **floating islands** look: flat solid cards with soft shadows over a plain background, in dark or light mode, with six colour palettes (Settings → Appearance → Colour palette dropdown). No blur, gradients or glow.
+**Shared with Finesse, byte for byte.** The full reference is
+[DESIGN_SYSTEM.md](DESIGN_SYSTEM.md); this is the orientation.
+
+`src/index.css` is one stylesheet in two halves. Everything above the
+`FINESSE FIT — app-specific` marker is identical to the same region of
+`finesse-app/src/index.css`; everything below it is the muscle map, the set
+editor, the exercise picker and the rest of this app's own furniture — built
+from the same tokens.
+
+Seven token layers on `<html>`, each driven by one `data-*` attribute that
+`src/theme/appearance.js` writes:
+
+| Layer | Attribute | Decides |
+|---|---|---|
+| Structure | — | `--radius-*`, `--gap*`, `--control-h`, motion timings |
+| Palette | `data-palette` | `--bg` + `--accent`, `--accent-2/3/4`, `--on-accent` |
+| Mode | `data-theme` | `--surface*`, `--line*`, `--text-*`, `--good/warn/danger/info` |
+| Surface | `data-surface` | `--card-bg`, `--card-border`, `--card-shadow`, `--card-blur` |
+| Contrast | `data-contrast` | Stronger lines and text over whatever else is set |
+| Density | `data-density` | `--density-scale`, which spacing and control sizes derive from |
+| Shape/type | `data-corners`, `data-text`, `data-motion` | `--radius-scale`, root font size, animation |
+
+Surfaces are `color-mix()`ed from `--bg`, so each palette's tint carries through
+the whole app rather than stopping at the buttons.
 
 ### Palettes
 
-| id | Name | Character |
-|---|---|---|
-| `mint` | Glacier Mint | Mint and blue (default) |
-| `aurora` | Aurora | Violet and cyan |
-| `ember` | Ember | Coral and amber |
-| `evergreen` | Evergreen | Green and lime |
-| `rose` | Rosé | Rose and peach |
-| `graphite` | Graphite | Monochrome with a gold accent |
+Twelve curated (`tide`, `mint`, `aurora`, `cobalt`, `evergreen`, `ember`,
+`marigold`, `oxide`, `rose`, `sakura`, `neon`, `graphite`) plus **Custom**, which
+`src/theme/custom.js` builds in OKLCH from a hue, a harmony, an intensity and a
+background tint. A curated palette is two token blocks in `index.css` and a
+`{ id, name, description }` entry in `theme/palettes.js`; the custom one has no
+CSS block at all and is written onto `<html>` as inline custom properties.
 
-Each palette is two token blocks in `index.css` plus a `{ id, name, description }` entry in `src/data/palettes.js`; the choice is stored as `profile.palette`.
+### Surface finishes
 
-### CSS variables
+`islands` (solid, the default), `glass` (translucent over a palette-built
+gradient mesh) and `outline` (flat, no shadow). One `.card` rule reads five
+tokens; each finish writes them.
 
-```css
-/* Structure */   --radius-xs … --radius-xl, --gap, --tabbar-height
-/* Palette */     --bg, --accent, --accent-2, --accent-3, --accent-4, --on-accent
-/* Mode */        --surface, --surface-2, --surface-hover, --surface-raised,
-                  --line, --line-strong, --text-primary/-secondary/-muted,
-                  --good, --warn, --danger, --shadow, --shadow-lg, --track, --scrim
-/* Derived */     --accent-soft, --accent-line, --accent-hover, --heat-0 … --heat-3
-```
+**Under Glass a card carries a `backdrop-filter`, which makes it the containing
+block for `position: fixed` descendants.** The exercise picker's popover renders
+through `Portal` from `ui.jsx` for exactly this reason.
 
-Charts and the muscle map use these tokens (`fill="var(--accent-2)"`, `color-mix(...)` in inline `style`), so they follow the palette. `.progress-fill` reads `--bar` from any ancestor — the Today macro cards set a different accent each.
+### Charts and the muscle map
 
-### Utility classes
+Both read tokens (`fill="var(--accent-2)"`, `--chart-grid`, `--heat-0…3`), so
+they follow the palette and the scheme with nothing per-palette to maintain.
+`.progress-fill` reads `--bar` from any ancestor, which is how each macro row on
+Today gets its own accent from one rule.
+
+### The classes worth knowing
 
 | Class | Purpose |
 |---|---|
-| `.card` / `.card-raised` | Floating island surfaces (a card inside a card or modal renders flat) |
-| `.btn-primary` / `.btn-secondary` / `.btn-danger` / `.btn-icon` | Buttons |
-| `.input` | Styled input / select |
-| `.nav-item` (+ `.active`) | Sidebar nav link |
-| `.progress-track` / `.progress-fill` | Progress bar (macro rings, goal bars) |
-| `.status-good` / `.status-warn` / `.status-danger` | Status pill |
-| `.modal-overlay` / `.modal-box` | Modal backdrop + container |
-| `.font-display` | DM Serif Display heading font |
+| `.card` / `.card-raised` / `.panel` | Surfaces; a card inside a card renders flat |
+| `.btn-primary` / `-secondary` / `-danger` / `-quiet` / `-ghost` / `.btn-icon` | Buttons |
+| `.input`, `.field`, `.form-grid` | Form controls and their labels |
+| `.stack` / `.row` / `.split` / `.grid-auto` / `.layout-split` / `.pair` | Layout primitives |
+| `.list` / `.list-row` / `.list-main` / `.list-trail` | Repeating records |
+| `.stat-grid` / `.stat` / `.metric` / `.hero-num` | Numbers |
+| `.progress-track` / `.progress-fill` / `.segments` | Bars |
+| `.status-good/-warn/-danger/-info`, `.badge`, `.chip` | Status and filters |
+| `.page-head` / `.page-title` / `.eyebrow` / `.card-title` | Page and card headings |
+| `.tab-bar` / `.tab-pill` | The tab strip on a consolidated page |
+| `.empty-state` | Never a bare "No data" |
+| `.modal-overlay` / `.modal-box` / `.modal-body` / `.modal-footer` | Dialogs |
 
-Inputs use `font-size: max(16px, 1em)` to prevent iOS zoom-on-focus.
+Inputs use `font-size: max(16px, 1em)` — iOS Safari zooms below that and offers
+no way back.
 
 ---
 

@@ -31,7 +31,14 @@ Camera access is required for barcode scanning — grant it when prompted.
 - **Workouts** — log sessions down to the individual set (exercise, reps, weight, RPE), with rapid multi-row entry
 - **Progress** — per-muscle volume over time, a colour-coded muscle map, lift strength curves, bodyweight trend, and a private on-device progress-photo gallery
 - **Goals** — strength, bodyweight, weekly-volume, or nutrition-adherence goals, each with a live progress status (bodyweight goals also show an estimated time-to-target)
-- **Settings** — colour palette, units, daily targets, persistent-storage/quota, backup export/import, app version and update check, full reset
+- **Settings** — appearance (twelve palettes plus a custom one, dark/light, three
+  surface finishes, density, corners, text size, contrast and motion), units,
+  daily targets, persistent-storage/quota, backup export/import, app version and
+  update check, full reset
+
+The look is shared with the [Finesse](https://github.com/TheCharlesChristy/finesse-app)
+finance app — same design system, same components, same appearance settings. See
+[DESIGN_SYSTEM.md](DESIGN_SYSTEM.md).
 
 ## Barcode scanning
 - Uses the native **BarcodeDetector** API where available (Android Chrome), falling back to **@zxing/browser** (iOS Safari)

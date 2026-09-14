@@ -1,5 +1,5 @@
 import { Pencil, Plus, Target, Trash2, TrendingUp, Trophy } from 'lucide-react';
-import { EmptyState, OverflowMenu, PageHeader } from '../components/ui.jsx';
+import { EmptyState, OverflowMenu } from '../components/ui.jsx';
 import { fmtDate, GOAL_STATUS, goalDescription, goalEta, goalProgress, goalValueLabel } from '../utils.js';
 
 // "~6 weeks at this rate" — projected from the 4-week bodyweight trend, the
@@ -53,30 +53,32 @@ export default function Goals({ goals, exercises, units, data, onAdd, onEdit, on
   const card = ({ goal, progress }) => <GoalCard key={goal.id} goal={goal} progress={progress} exercises={exercises} units={units} data={data} onEdit={onEdit} onDelete={onDelete} />;
 
   return (
-    <main className="page">
-      <PageHeader title="Goals" subtitle="Strength, bodyweight, weekly volume and nutrition targets.">
-        <button className="btn-primary" type="button" onClick={onAdd}><Plus size={18} /> Add goal</button>
-      </PageHeader>
-
+    <div className="stack-lg">
       {!goals.length && (
         <section className="card panel">
-          <EmptyState title="No goals yet">Try a strength goal like a 100 kg bench, or “hit protein 10 of 14 days”.</EmptyState>
+          <EmptyState
+            icon={Target}
+            title="No goals yet"
+            action={<button className="btn-primary" type="button" onClick={onAdd}><Plus size={18} aria-hidden="true" /> Add your first goal</button>}
+          >
+            Try a strength goal like a 100 kg bench, or “hit protein 10 of 14 days”.
+          </EmptyState>
         </section>
       )}
 
       {active.length > 0 && (
-        <section className="section">
+        <section className="stack-lg">
           <h2 className="section-heading"><Target size={16} /> In progress <span className="muted">{active.length}</span></h2>
-          <div className="card-grid">{active.map(card)}</div>
+          <div className="grid-auto">{active.map(card)}</div>
         </section>
       )}
 
       {achieved.length > 0 && (
-        <section className="section">
+        <section className="stack-lg">
           <h2 className="section-heading"><Trophy size={16} /> Achieved <span className="muted">{achieved.length}</span></h2>
-          <div className="card-grid">{achieved.map(card)}</div>
+          <div className="grid-auto">{achieved.map(card)}</div>
         </section>
       )}
-    </main>
+    </div>
   );
 }

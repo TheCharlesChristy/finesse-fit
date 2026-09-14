@@ -1,13 +1,14 @@
-import { createElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Apple, Dumbbell, Home, LoaderCircle, Menu, Settings as SettingsIcon, Trophy, X } from 'lucide-react';
+import { Apple, Dumbbell, Home, LoaderCircle, Settings as SettingsIcon, Trophy } from 'lucide-react';
+import AppShell from './components/AppShell.jsx';
 import BarcodeScanner from './components/BarcodeScanner.jsx';
 import { BodyweightModal, ExerciseModal, FoodModal, GoalModal, LogFoodModal, LogMealModal, ProfileModal, QuickAddModal, WorkoutModal } from './components/Modals.jsx';
 import ScanLabelModal from './components/ScanLabelModal.jsx';
 import { useDialog } from './components/useDialog.jsx';
 import { SEEDED_EXERCISES } from './data/exercise-library/index.js';
-import { DEFAULT_PALETTE, paletteExists } from './data/palettes.js';
 import * as data from './db.js';
+import { useAppearance } from './theme/useAppearance.js';
 import { resolveBarcode, saveSearchResult, searchFoods } from './foodApi.js';
 import { buildPhoto } from './photos.js';
 import { shareJson } from './share.js';
@@ -19,99 +20,44 @@ import Settings from './views/Settings.jsx';
 import Training from './views/Training.jsx';
 
 const NAV = [
-  { id: 'dashboard', label: 'Dashboard', short: 'Today', icon: Home },
-  { id: 'logFood', label: 'Foods', short: 'Food', icon: Apple },
+  { id: 'dashboard', label: 'Today', short: 'Today', icon: Home },
+  { id: 'logFood', label: 'Food', short: 'Food', icon: Apple },
   { id: 'training', label: 'Training', short: 'Train', icon: Dumbbell },
   { id: 'settings', label: 'Settings', short: 'Settings', icon: SettingsIcon }
 ];
-const TAB_BAR = NAV.slice(0, 4);
-const HAS_MORE = NAV.length > TAB_BAR.length;
-// The one tiny localStorage key (like Finesse's selected-profile id): a mirror of
-// the appearance settings so the first paint uses the right palette.
+
+/**
+ * The tabs that used to be their own nav entries, and where they went.
+ *
+ * Folding Workouts, Progress and Goals into one Training page kept the nav to
+ * four entries — but those three ids are still the vocabulary the rest of the
+ * app navigates in, so `setView` resolves through here rather than every caller
+ * being rewritten. Same pattern, and same reasoning, as Finesse's VIEW_ALIASES.
+ */
+const VIEW_ALIASES = {
+  workouts: ['training', 'workouts'],
+  progress: ['training', 'progress'],
+  goals: ['training', 'goals']
+};
+
+// The one tiny localStorage key both apps allow themselves: a mirror of the
+// appearance settings so the first paint uses the right theme. See theme/.
 const APPEARANCE_KEY = 'finesse-fit:appearance';
-
-function ShellNav({ view, setView, closeMenu = () => {} }) {
-  return (
-    <nav className="nav-list" aria-label="Primary navigation">
-      {NAV.map(({ id, label, icon }) => (
-        <button
-          key={id}
-          className={`nav-item ${view === id ? 'active' : ''}`}
-          type="button"
-          aria-current={view === id ? 'page' : undefined}
-          onClick={() => {
-            setView(id);
-            closeMenu();
-          }}
-        >
-          {createElement(icon, { size: 18 })} {label}
-        </button>
-      ))}
-    </nav>
-  );
-}
-
-function Sidebar({ view, setView }) {
-  return (
-    <aside className="sidebar card">
-      <div className="brand">
-        <div className="brand-mark">
-          <span className="font-display brand-word">Finesse</span>
-          <span className="brand-tag">FIT</span>
-        </div>
-        <div className="muted brand-sub">Local-first tracker</div>
-      </div>
-      <ShellNav view={view} setView={setView} />
-      <div style={{ marginTop: 'auto' }} className="muted">Your data stays on this device</div>
-    </aside>
-  );
-}
-
-function MobileNav({ view, setView }) {
-  const [open, setOpen] = useState(false);
-  const inMenu = HAS_MORE && !TAB_BAR.some((item) => item.id === view);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKey = (event) => event.key === 'Escape' && setOpen(false);
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [open]);
-
-  return (
-    <>
-      {open && (
-        <>
-          <div className="mobile-menu-scrim" onClick={() => setOpen(false)} aria-hidden="true" />
-          <div className="mobile-menu card-raised"><ShellNav view={view} setView={setView} closeMenu={() => setOpen(false)} /></div>
-        </>
-      )}
-      <nav className="mobile-tabbar card-raised" aria-label="Quick navigation">
-        {TAB_BAR.map(({ id, short, icon }) => (
-          <button key={id} type="button" className={`tab-item ${view === id && !open ? 'active' : ''}`} aria-current={view === id ? 'page' : undefined} onClick={() => { setView(id); setOpen(false); }}>
-            {createElement(icon, { size: 20 })}<span>{short}</span>
-          </button>
-        ))}
-        {HAS_MORE && <button type="button" className={`tab-item ${open || inMenu ? 'active' : ''}`} aria-expanded={open} onClick={() => setOpen(!open)}>
-          {open ? <X size={20} /> : <Menu size={20} />}<span>More</span>
-        </button>}
-      </nav>
-    </>
-  );
-}
 
 function Toast({ notice, onDismiss }) {
   if (!notice) return null;
   return (
-    <div className={`toast card-raised ${notice.tone ?? ''}`} role="status" aria-live="polite">
-      {notice.busy && <LoaderCircle size={18} className="spin" />}
-      {notice.icon === 'trophy' && <Trophy size={18} className="toast-trophy" />}
-      <span>{notice.message}</span>
-      {notice.action && (
-        <button type="button" className="toast-action" onClick={() => { onDismiss(); notice.action.onClick(); }}>
-          {notice.action.label}
-        </button>
-      )}
+    <div className="toast-stack">
+      <div className={`toast card-raised ${notice.icon === 'trophy' ? 'highlight' : notice.tone ?? ''}`.trim()} role="status" aria-live="polite">
+        {notice.busy && <LoaderCircle size={18} className="spin" aria-hidden="true" />}
+        {notice.icon === 'trophy' && <Trophy size={18} aria-hidden="true" />}
+        <span className="toast-text">{notice.message}</span>
+        {notice.action && (
+          <button type="button" className="toast-action" onClick={() => { onDismiss(); notice.action.onClick(); }}>
+            {notice.action.label}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -165,9 +111,9 @@ export default function App() {
   const latestBodyweight = bodyweightLogs.at(-1)?.weight ?? profile.bodyweight;
 
   const setView = useCallback((next) => {
-    const section = ['workouts', 'progress', 'goals'].includes(next) ? next : null;
-    if (section) setTrainingSection(section);
-    setViewState(section ? 'training' : next);
+    const [page, tab] = VIEW_ALIASES[next] ?? [next, null];
+    if (tab) setTrainingSection(tab);
+    setViewState(page);
     window.scrollTo({ top: 0 });
   }, []);
 
@@ -177,28 +123,10 @@ export default function App() {
     if (!options.busy) noticeTimer.current = window.setTimeout(() => setNotice(null), options.duration ?? 2600);
   }, []);
 
-  const palette = paletteExists(profile.palette) ? profile.palette : DEFAULT_PALETTE;
-  const [resolvedTheme, setResolvedTheme] = useState(() => document.documentElement.dataset.theme || 'dark');
-  useEffect(() => {
-    // Until the profile loads, keep whatever the boot script in index.html applied.
-    if (loadedProfile === undefined) return undefined;
-    const media = window.matchMedia?.('(prefers-color-scheme: light)');
-    const apply = () => {
-      const theme = profile.themeMode === 'system' ? (media?.matches ? 'light' : 'dark') : profile.themeMode || 'dark';
-      const root = document.documentElement;
-      root.dataset.theme = theme;
-      root.dataset.palette = palette;
-      setResolvedTheme(theme);
-      const bg = getComputedStyle(root).getPropertyValue('--bg').trim();
-      if (bg) document.querySelector('meta[name="theme-color"]')?.setAttribute('content', bg);
-      // Mirrored so index.html can paint the right palette before React loads (no flash).
-      try { localStorage.setItem(APPEARANCE_KEY, JSON.stringify({ themeMode: profile.themeMode, palette })); } catch { /* storage unavailable */ }
-    };
-    apply();
-    if (profile.themeMode !== 'system' || !media) return undefined;
-    media.addEventListener('change', apply);
-    return () => media.removeEventListener('change', apply);
-  }, [loadedProfile, profile.themeMode, palette]);
+  // Paints <html> from the profile and mirrors it for the next cold start. Held
+  // back until the profile has actually loaded, so the boot script's paint
+  // stands rather than being overwritten with the defaults for one frame.
+  const resolvedTheme = useAppearance(profile.appearance, APPEARANCE_KEY, loadedProfile !== undefined);
 
   useEffect(() => {
     if (loadedProfile === null) data.saveProfile(data.DEFAULT_PROFILE);
@@ -481,10 +409,16 @@ export default function App() {
   const viewProps = { profile, foods, foodLogs, dailyTotals, workouts, muscleVolume, bodyweightLogs, goals, exercises, meals, today };
 
   return (
-    <div className="app-shell">
-      <Sidebar view={view} setView={setView} />
-      <div className="page">
-        <MobileNav view={view} setView={setView} />
+    <AppShell
+      nav={NAV}
+      view={view}
+      onNavigate={setView}
+      brand="Finesse"
+      brandTag="FIT"
+      brandSub="Training & nutrition"
+      sidebarFoot={<><span>Everything stays on this device.</span><span>Works offline.</span></>}
+    >
+      <main className="page">
         {view === 'dashboard' && (
           <Dashboard
             {...viewProps}
@@ -548,18 +482,20 @@ export default function App() {
         {view === 'settings' && (
           <Settings
             profile={profile}
+            appearance={profile.appearance}
             resolvedTheme={resolvedTheme}
             storageState={storageState}
             storageEstimate={storageEstimate}
             onRequestPersistence={async () => notify((await requestPersistence()) ? 'Storage is now protected' : 'Your browser declined — install the app to your home screen and try again', { duration: 4000 })}
             onProfile={() => setModal({ type: 'profile' })}
             onProfileChange={(patch) => data.saveProfile({ ...profile, ...patch })}
+            onAppearanceChange={(patch) => data.updateProfile({ appearance: { ...profile.appearance, ...patch } })}
             onExport={handleExport}
             onImport={handleImport}
             onClear={clearAll}
           />
         )}
-      </div>
+      </main>
 
       {scannerOpen && <BarcodeScanner onDetected={handleScan} onClose={() => setScannerOpen(false)} />}
       {scanLabelOpen && <ScanLabelModal onScanned={handleLabelScanned} onClose={() => setScanLabelOpen(false)} />}
@@ -582,6 +518,6 @@ export default function App() {
       {modal?.type === 'logMeal' && <LogMealModal meal={modal.meal} onClose={closeModal} onLog={logMeal} onDelete={deleteMeal} />}
       {Dialog}
       <Toast notice={notice} onDismiss={dismissNotice} />
-    </div>
+    </AppShell>
   );
 }
