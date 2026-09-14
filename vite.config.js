@@ -57,6 +57,7 @@ export default defineConfig({
         shortcuts: [
           { name: 'Scan barcode', short_name: 'Scan', url: '/finesse-fit/?action=scan', icons: [{ src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml' }] },
           { name: 'Log workout', short_name: 'Workout', url: '/finesse-fit/?action=workout', icons: [{ src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml' }] },
+          { name: 'Start a run', short_name: 'Run', url: '/finesse-fit/?action=run', icons: [{ src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml' }] },
           { name: 'Log food', short_name: 'Food', url: '/finesse-fit/?action=food', icons: [{ src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml' }] }
         ]
       },
@@ -71,6 +72,20 @@ export default defineConfig({
         // only the first time someone actually opens that flow.
         globIgnores: ['tesseract/**', 'assets/vendor-ocr-*.js'],
         runtimeCaching: [
+          {
+            // OpenStreetMap tiles (src/mapTiles.js). Only tiles someone has
+            // actually looked at get cached — OSM's usage policy forbids
+            // bulk pre-fetching — so a route you've viewed before still has
+            // a map on a patchy-signal run. Requested with CORS (RouteMap
+            // sets crossOrigin) so these aren't opaque, padded responses.
+            urlPattern: ({ url }) => url.hostname === 'tile.openstreetmap.org',
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'map-tiles',
+              expiration: { maxEntries: 1500, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [200] }
+            }
+          },
           {
             // Tesseract's worker/core/language files, plus its own script
             // chunk — all same-origin, none precached (see globIgnores

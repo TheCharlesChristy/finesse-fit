@@ -1,25 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-
-let audioContext = null;
-function beep() {
-  try {
-    audioContext ??= new (window.AudioContext || window.webkitAudioContext)();
-    const now = audioContext.currentTime;
-    [0, 0.22].forEach((offset) => {
-      const osc = audioContext.createOscillator();
-      const gain = audioContext.createGain();
-      osc.frequency.value = 880;
-      gain.gain.setValueAtTime(0.0001, now + offset);
-      gain.gain.exponentialRampToValueAtTime(0.25, now + offset + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.18);
-      osc.connect(gain).connect(audioContext.destination);
-      osc.start(now + offset);
-      osc.stop(now + offset + 0.2);
-    });
-  } catch {
-    // Audio is a nice-to-have; vibration or the visual cue still fire.
-  }
-}
+import { beep, primeAudio, vibrate } from '../cues.js';
 
 // Timestamp-based so the countdown stays correct if the phone locks and timers are throttled.
 export function useRestTimer() {
@@ -35,7 +15,7 @@ export function useRestTimer() {
       setNow(current);
       if (current >= endsAt && !firedRef.current) {
         firedRef.current = true;
-        navigator.vibrate?.([200, 100, 200]);
+        vibrate();
         beep();
         setEndsAt(null);
         setFinishedAt(current);
@@ -58,7 +38,7 @@ export function useRestTimer() {
 
   const start = (seconds) => {
     // Prime audio inside the user gesture so the end-of-rest beep is allowed to play.
-    try { audioContext ??= new (window.AudioContext || window.webkitAudioContext)(); } catch { /* unsupported */ }
+    primeAudio();
     firedRef.current = false;
     setFinishedAt(null);
     const current = Date.now();

@@ -1,4 +1,4 @@
-import { BarChart3, Dumbbell, Plus, Target } from 'lucide-react';
+import { BarChart3, Dumbbell, History, Plus, Target } from 'lucide-react';
 
 import { PageHeader, Tabs } from '../components/ui.jsx';
 import Goals from './Goals.jsx';
@@ -20,8 +20,8 @@ const SECTIONS = [
     id: 'workouts',
     label: 'Workouts',
     Icon: Dumbbell,
-    subtitle: 'Tap a session to edit it. Muscle volume is frozen when you save.',
-    action: 'Log workout',
+    subtitle: 'Design a plan, start it, tick it off as you go.',
+    action: 'New plan',
   },
   {
     id: 'progress',
@@ -41,16 +41,21 @@ const SECTIONS = [
 
 export default function Training({
   section = 'workouts', onSectionChange,
-  workouts, exercises, units, today, onAddWorkout, onRepeatWorkout, onEditWorkout, onDeleteWorkout,
+  workouts, exercises, units, today, onAddWorkout, onRepeatWorkout, onEditWorkout, onDeleteWorkout, workoutProps = {},
   muscleVolume, bodyweightLogs, dailyTotals, profile, photos, onLogBodyweight, onDeleteBodyweight, onApplyCalories, onAddPhoto, onDeletePhoto,
   goals, goalData, onAddGoal, onEditGoal, onDeleteGoal
 }) {
   const active = SECTIONS.find((item) => item.id === section) ?? SECTIONS[0];
-  const primaryAction = { workouts: onAddWorkout, progress: onLogBodyweight, goals: onAddGoal }[active.id];
+  const primaryAction = { workouts: workoutProps.onNewPlan ?? onAddWorkout, progress: onLogBodyweight, goals: onAddGoal }[active.id];
 
   return (
     <>
       <PageHeader eyebrow="Training" title={active.label} subtitle={active.subtitle}>
+        {active.id === 'workouts' && (
+          <button className="btn-secondary" type="button" onClick={onAddWorkout}>
+            <History size={18} aria-hidden="true" /> Log past workout
+          </button>
+        )}
         <button className="btn-primary" type="button" onClick={primaryAction}>
           <Plus size={18} aria-hidden="true" /> {active.action}
         </button>
@@ -68,6 +73,7 @@ export default function Training({
           onRepeatWorkout={onRepeatWorkout}
           onEditWorkout={onEditWorkout}
           onDeleteWorkout={onDeleteWorkout}
+          {...workoutProps}
         />
       )}
       {active.id === 'progress' && (

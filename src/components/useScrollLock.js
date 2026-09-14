@@ -47,10 +47,11 @@ function unlockBodyScroll() {
   window.scrollTo(0, lockedScrollY);
 }
 
-/** Holds the page still for as long as the calling component is mounted. */
-export function useScrollLock() {
+/** Holds the page still for as long as the calling component is mounted (and `active`). */
+export function useScrollLock(active = true) {
   useEffect(() => {
+    if (!active) return undefined;
     lockBodyScroll();
     return unlockBodyScroll;
-  }, []);
+  }, [active]);
 }

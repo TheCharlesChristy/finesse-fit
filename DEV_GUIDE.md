@@ -1,6 +1,6 @@
 # Finesse Fit — Developer Guide
 
-A personal fitness PWA built with React + Vite + Dexie.js. It tracks workouts, food, and nutrition against goals. All data lives in the browser's IndexedDB — no backend, no accounts. The only runtime network calls go to Open Food Facts: resolving a scanned barcode and user-triggered name search (once per product, then cached). Nutrition-label scanning is a separate, self-hosted OCR pipeline (tesseract.js) that never sends anything anywhere — see "Nutrition-label OCR" below.
+A personal fitness PWA built with React + Vite + Dexie.js. It tracks workouts, food, and nutrition against goals. All data lives in the browser's IndexedDB — no backend, no accounts. The only runtime network traffic is: Open Food Facts (resolving a scanned barcode, user-triggered name search — once per product, then cached), OpenStreetMap map tiles while a map is on screen, and user-triggered route snapping in the route planner. GPS tracking itself is on-device and works offline. Nutrition-label scanning is a separate, self-hosted OCR pipeline (tesseract.js) that never sends anything anywhere — see "Nutrition-label OCR" below.
 
 Architecturally identical to the **Finesse** finance app: reads at the root via `useLiveQuery`, mutations in `db.js`, pure logic in `utils.js`, views are presentational.
 
@@ -20,6 +20,7 @@ Architecturally identical to the **Finesse** finance app: reads at the root via 
 | Dates | date-fns | 4 | Date arithmetic |
 | Scanning | @zxing/browser | latest | Barcode decode fallback |
 | OCR | tesseract.js | 7 | Nutrition-label text recognition, self-hosted, lazy-loaded |
+| Maps | leaflet | 1.9 | Run maps and the route planner, lazy-loaded, OpenStreetMap tiles |
 
 ---
 
@@ -43,7 +44,13 @@ src/
 ├── App.jsx               # Root: nav, modal state, all useLiveQuery calls, orchestration
 ├── db.js                 # Dexie schema + all database helpers
 ├── utils.js              # Pure functions: nutrition math, volume math, formatting, dates
-├── foodApi.js            # Open Food Facts barcode resolution + name search (the ONLY network module)
+├── foodApi.js            # Open Food Facts barcode resolution + name search (network module)
+├── routingApi.js         # Route-planner path snapping via OSRM (network module, user-triggered)
+├── mapTiles.js           # OpenStreetMap tile URL + attribution (the only tile config)
+├── plans.js              # Pure: workout-plan blocks → steps, estimates, descriptions, starters
+├── session.js            # Pure: live-session reducer — timers, auto-advance, GPS recording, saving
+├── geo.js                # Pure: GPS filtering, distance/pace/splits/elevation, units, GPX
+├── cues.js               # Beeps, vibration, on-device speech
 ├── ocr.js                # Tesseract OCR worker lifecycle, self-hosted, lazy-loaded (see below)
 ├── labelParser.js        # Pure: OCR'd label text → candidate per-100g macros
 ├── storage.js            # Persistent-storage permission state + quota estimate
@@ -61,7 +68,8 @@ src/
 │   ├── Dashboard.jsx     # Today's macros, meals, training, goals
 │   ├── LogFood.jsx       # Barcode scan + search + quantity entry (the hero screen)
 │   ├── Foods.jsx         # Food library management
-│   ├── Workouts.jsx      # Session + set logging
+│   ├── Training.jsx      # Workouts / Progress / Goals tabs
+│   ├── Workouts.jsx      # Plans + quick starts, session history, routes, exercise library
 │   ├── Progress.jsx      # Per-muscle volume, muscle map, strength/bodyweight charts, photos
 │   ├── Goals.jsx         # Goal tracking, incl. bodyweight-goal ETA
 │   └── Settings.jsx      # Appearance, units, storage/quota, backup, About/update-check
@@ -70,7 +78,10 @@ src/
 │   ├── setup.js
 │   ├── utils.test.js
 │   ├── db.test.js
-│   └── labelParser.test.js
+│   ├── labelParser.test.js
+│   ├── plans.test.js
+│   ├── session.test.js
+│   └── geo.test.js
 │
 └── components/
     ├── Modals.jsx        # AddFoodModal, LogFoodModal, AddExerciseModal, LogWorkoutModal,
@@ -82,7 +93,16 @@ src/
     ├── DateInput.jsx     # Accessible date picker
     ├── ProgressPhotos.jsx# Photo strip + lightbox, used by Progress.jsx
     ├── ScanLabelModal.jsx# Photo → OCR → parsed macros, hands off to FoodModal's `prefill`
-    ├── RestTimer.jsx     # Rest countdown bar in the workout editor
+    ├── RestTimer.jsx     # Rest countdown bar in the past-workout editor
+    ├── WorkoutSession.jsx# Live session overlay (now card, tick list, map, finish sheet, minimised pill), via Portal
+    ├── inputs.jsx        # Fit-only NumberInput / DurationInput / Toggle (ui.jsx is shared with Finesse)
+    ├── PlanModal.jsx     # Plan designer
+    ├── RoutePlannerModal.jsx # Route planner (tap to plot, optional path snapping)
+    ├── ActivityModal.jsx # Saved session detail: map, splits, segments, GPX, save as route
+    ├── RouteMap.jsx      # Leaflet wrapper, styled via index.css tokens
+    ├── leaflet.js        # Leaflet + CSS, dynamic-import only
+    ├── useGeolocation.js # watchPosition hook, getCurrentFix, locationAlreadyAllowed
+    ├── useWakeLock.js    # Screen wake lock while a session runs
     ├── WeekReview.jsx    # Weekly summary stat grid
     ├── AppShell.jsx      # SHARED — sidebar, mobile tab bar, "More" sheet
     ├── AppearanceSettings.jsx # SHARED — palette / finish / density panel
@@ -96,7 +116,7 @@ src/
 
 ### Schema
 
-The Dexie database is named `FinesseFit`, schema version 4 (v2 added `meals`, v3 added `templates`, v4 added `photos`).
+The Dexie database is named `FinesseFit`, schema version 5 (v2 added `meals`, v3 added `templates`, v4 added `photos`, v5 added `tracks`, `routes` and `activeSession`).
 
 | Table | Key | Indexed fields | Description |
 |---|---|---|---|
@@ -109,7 +129,10 @@ The Dexie database is named `FinesseFit`, schema version 4 (v2 added `meals`, v3
 | `muscleVolume` | `++id` | `muscle`, `weekKey` | Derived per-muscle weekly volume aggregates |
 | `bodyweightLogs` | `++id` | `date` | Bodyweight measurements |
 | `goals` | `++id` | `type` | Tracked goals |
-| `templates` | `++id` | `name` | Workout templates: `{ name, sets: [{ exerciseId, reps, weight, rpe }] }` (weights in kg) |
+| `templates` | `++id` | `name` | Workout **plans**: `{ name, notes, blocks: Block[] }` (see "Workout plans & live sessions"). Legacy rows `{ name, sets }` are read through `normalizePlan()`. |
+| `routes` | `++id` | `name` | Planned routes: `{ name, waypoints: [[lat, lon]], path: [[lat, lon]], distance (m), followPaths }`. Routes saved from a recorded run have a `path` but no `waypoints`. |
+| `tracks` | `++id` | `workoutId` | GPS track of a saved session: `{ workoutId, activity, segments: [[[lat, lon, timeMs, accuracyM, altitudeM]]] }` — kept off the workout row so the app-wide workouts query stays light. |
+| `activeSession` | `id` | — | Singleton (`id: 1`): the serialised state of the workout in progress, so it survives the app being closed. A **device table** (`DEVICE_TABLES`): not exported, wiped by a full reset. |
 | `meals` | `++id` | `name` | Saved meal templates: `{ name, mealType, items: [{ foodId, foodName, brand, foodSnapshot, quantity, unit, computed }] }` |
 | `photos` | `++id` | `date` | Progress photos: `{ date, full, thumb, width, height, createdAt }` — `full`/`thumb` are compressed JPEG `Uint8Array`s. A **binary table** — listed in `BINARY_TABLES`, not `TABLES`, so it's wiped by a full reset but excluded from the JSON export (see Export / import format). |
 
@@ -199,13 +222,53 @@ If you touch this function, `src/__tests__/utils.test.js` has cases for both the
 ```js
 {
   id: 1,
-  date: '2026-06-05T18:00:00Z',
+  date: '2026-06-05',
   sets: [
     { exerciseId: 1, reps: 8, weight: 80, rpe: 8 },
-    { exerciseId: 1, reps: 8, weight: 80, rpe: 9 },
+    { exerciseId: 'seed:plank', reps: 0, seconds: 60, weight: 0 }, // timed set
   ],
+  // Present on workouts saved from a live session:
+  name: 'Intervals · 6 × 400 m',
+  planId: 3,
+  startedAt: '2026-06-05T18:00:00.000Z',
+  durationSeconds: 2520,
+  cardio: [{ activity: 'run', label: 'Rep 1 of 6', intensity: 'hard', seconds: 92, meters: 400, gps: true, blockKind: 'intervals' }],
+  distance: 5200,        // metres, sum of cardio
+  movingSeconds: 1810,   // from the GPS track
+  elevationGain: 34,     // metres, null without altitude data
+  routeId: null,
+  routePreview: [[51.5, -0.12], ...], // ≤60 points for list thumbnails
 }
 ```
+
+### Workout plans & live sessions
+
+A plan is a template; a workout is the frozen record of what was actually done.
+
+```js
+// Plan blocks (plans.js normalizeBlock)
+{ kind: 'exercise', exerciseId, sets: 3, measure: 'reps' | 'time', reps: 8, seconds: 30, weight: 60, restSeconds: 90 }
+{ kind: 'circuit', rounds: 3, restBetweenRounds: 60, autoStart: true, items: [{ exerciseId, measure, reps, seconds, weight, restSeconds }] }
+{ kind: 'cardio', activity: 'run' | 'walk' | 'cycle' | 'row' | 'other', label, intensity, goal: { type: 'open' | 'time' | 'distance', seconds, meters }, gps: true, routeId }
+{ kind: 'intervals', activity, repeats: 6, work: { goal, intensity: 'hard' }, recover: { goal, mode: 'jog' | 'walk' | 'rest' }, gps, autoStart: true }
+{ kind: 'rest', seconds: 120 }
+```
+
+Flow: `createSession({ plan, workouts })` (prefills empty weights from last session) → `WorkoutSession.jsx` runs `sessionReducer` (`start`, `pause`, `complete`, `skip`, `select`, `edit`, `tick`, `fix`, `skipRest`, `adjustRest`, `addBlock`) → state saved to `activeSession` every ~3 s → Finish → `sessionToWorkout()` → `saveSessionWorkout({ workout, track })` (one transaction: workout + `muscleVolume` + track, and clears `activeSession`).
+
+- **Rest** after a completed step is its `restAfter`; a reps-based set waits for a tick, while timed steps with `autoStart` (circuits, intervals) start by themselves when the rest ends.
+- **Distance goals** complete when the step's GPS distance reaches them; **time goals** complete at exactly their target.
+- **Reload recovery**: `resumeSession()` pauses a running step at the last save and never auto-runs steps during the gap.
+- **Cues**: 3-2-1 ticks at the end of countdowns; "go" chime when an interval starts; rest-over alert; spoken km/mi splits and step names when voice cues are on (on-device voices only).
+- **Finish sheet**: can count a started-but-unticked step (a free run) as done, and can write today's weights/reps back to the plan (`planWithActuals`).
+
+### GPS & maps
+
+- Fix filtering (`appendFix`): drop accuracy > 35 m; ignore movement below max(3 m, accuracy/2); reject implied speeds > 12 m/s, re-anchoring after 5 in a row. Only recorded while a GPS cardio step's timer runs; each start opens a new segment.
+- Splits (`computeSplits`) interpolate the moment each km/mi boundary was crossed; elevation gain uses a 4 m hysteresis.
+- `RouteMap.jsx` loads Leaflet lazily; tiles use `crossOrigin` so the service worker's `map-tiles` cache stores real (non-opaque) responses. Only viewed tiles are cached (30 days, 1,500 max).
+- Route planner: each leg between waypoints is snapped with `routeLeg()` when "Follow paths" is on, else straight; failures fall back to a straight leg with a notice.
+- Activity detail exports GPX via `share.js` and can save a recorded track as a route.
 
 ### Goal shape
 
@@ -254,11 +317,11 @@ A saved meal is a template, like a library food. `logMeal()` scales each item fr
 
 ### Profile extras
 
-`restSeconds` (rest timer default), `lastExportAt` and `backupSnoozedUntil` (backup reminder), and `reviewDismissedWeek` (weekly review card) live on the profile singleton.
+`restSeconds` (rest timer default), `sessionSettings` (`{ sound, voice }` defaults for live sessions), `lastExportAt` and `backupSnoozedUntil` (backup reminder), and `reviewDismissedWeek` (weekly review card) live on the profile singleton.
 
 ### Home-screen shortcuts
 
-`vite.config.js` declares manifest `shortcuts` that open `/?action=scan|workout|food`; `App.jsx` handles the parameter once on launch and strips it from the URL.
+`vite.config.js` declares manifest `shortcuts` that open `/?action=scan|workout|food|run` (`run` starts a free GPS run once the app knows no session is already in progress); `App.jsx` handles the parameter once on launch and strips it from the URL.
 
 ### Bodyweight exercises
 
@@ -507,7 +570,7 @@ A flat snapshot of all tables:
 
 ```json
 {
-  "version": 1,
+  "version": 4,
   "exportedAt": "2026-06-05T...",
   "profile": [ { ...profileRow } ],
   "foods": [ ... ],
@@ -517,7 +580,11 @@ A flat snapshot of all tables:
   "workouts": [ ... ],
   "muscleVolume": [ ... ],
   "bodyweightLogs": [ ... ],
-  "goals": [ ... ]
+  "goals": [ ... ],
+  "meals": [ ... ],
+  "templates": [ ... ],
+  "routes": [ ... ],
+  "tracks": [ ... ]
 }
 ```
 
@@ -543,7 +610,13 @@ If you add a muscle, add it to both the map SVG regions and any seed exercises t
 
 ## Device integration modules
 
-Small standalone modules, each wrapping one browser capability. None of them touch Dexie directly (except `photos.js` feeding rows into `db.js` callers) and none are the network module — `foodApi.js` is still the only file allowed to `fetch`.
+Small standalone modules, each wrapping one browser capability. None of them touch Dexie directly (except `photos.js` feeding rows into `db.js` callers) and none are network modules — `foodApi.js` and `routingApi.js` are the only files allowed to `fetch`.
+
+### `useGeolocation.js`, `useWakeLock.js`, `cues.js` — live sessions
+
+- `useGeolocation({ enabled, onFix })` wraps `watchPosition` (high accuracy) and reports `status: off | acquiring | weak | good | denied | error | unsupported`. `getCurrentFix()` is a one-off for "Locate me"; `locationAlreadyAllowed()` lets the planner centre itself without prompting.
+- `useWakeLock(active)` holds a screen wake lock and re-acquires it when the page becomes visible again.
+- `cues.js`: `cue(kind, { sound, voice, text })` vibrates, speaks with a `localService` voice when voice is on, and beeps otherwise. `primeAudio()` must run inside a tap so later automatic cues can sound (iOS/Chrome autoplay rules).
 
 ### `storage.js` — persistent storage & quota
 
@@ -590,6 +663,9 @@ Each test file's `beforeEach` opens the db if needed and clears every table (`db
 
 - **`utils.test.js`** — pure-function coverage: nutrition scaling, volume attribution, e1RM, `goalProgress`/`goalEta`, week-keying (careful with ISO week edge cases — 2025 has 52 ISO weeks, not 53), formatting, `estimateTdee`, `backupReminder`, etc.
 - **`db.test.js`** — the two most important invariants in the codebase: derived counters (`dailyTotals`/`muscleVolume`) staying correct across add/edit/delete, and frozen historical values not being rewritten when a food/exercise template changes later. Also covers undo/restore, export/import round-trips (asserting `photos` is excluded), exerciseId remapping and merge-mode on import, and `clearAllData` wiping `BINARY_TABLES` alongside `TABLES`.
+- **`session.test.js`** — live-session reducer: rest/timed/paused steps, auto-advancing circuits and intervals (with catch-up), GPS recording and distance goals, saving, reload recovery.
+- **`plans.test.js`** — plan normalisation (incl. legacy templates), expansion keys, estimates, `planWithActuals`.
+- **`geo.test.js`** — GPS noise filtering, segments, pace/splits/elevation, formatting, GPX.
 - **`labelParser.test.js`** — the nutrition-label heuristics: UK (per-100g + per-serving columns) and US (per-serving + sodium) layouts, nested "of which" lines not overwriting their parent nutrient, decimal commas, and a couple of real-OCR-output regression cases.
 
 When you touch a derived-counter mutation in `db.js` or add non-trivial logic to `utils.js`/`labelParser.js`, add a test rather than relying on manual browser verification alone.
@@ -623,6 +699,12 @@ Camera permission is requested on first scan. Serve over **HTTPS** — `getUserM
 ---
 
 ## Known limitations & future work
+
+**GPS pauses when the app isn't on screen.** Browsers stop geolocation for backgrounded or screen-locked web apps (a native app can keep tracking; a PWA can't). The session holds a wake lock and asks the user to keep the app open; a gap in the track is drawn and measured as a straight line.
+
+**Maps need a connection for their background.** Tracking, timers and saved routes work offline, but tiles for an area never viewed before can't load. Viewed tiles are cached for 30 days.
+
+**Route snapping uses a public server.** `routing.openstreetmap.de` is run by FOSSGIS for light use and has no SLA; when it's busy the planner falls back to straight legs.
 
 **Barcode resolution needs the network once per product.** First scan of an unknown item requires Open Food Facts; after caching it's offline forever. Unknown products fall back to manual entry.
 

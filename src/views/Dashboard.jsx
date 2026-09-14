@@ -5,6 +5,7 @@ import { CardTitle, EmptyState, IconButton, PageHeader } from '../components/ui.
 import StatRing from '../components/StatRing.jsx';
 import WeekReview from '../components/WeekReview.jsx';
 import { MUSCLES } from '../data/exercises.js';
+import { fmtDistance } from '../geo.js';
 import { buildAiContext, EXTRA_NUTRIENTS, GOAL_STATUS, backupReminder, dateKey, fmtCalories, fmtCompact, fmtDate, fmtWeight, goalProgress, groupLogsByMeal, mealLabel, muscleLabel, neglectedMuscles, percent, shiftDay, shiftWeekKey, weekDays, weekKey, weekLabel, weeklyReview, weightRatePerWeek, weightTrend } from '../utils.js';
 
 function LedgerRow({ label, value, target, unit, color }) {
@@ -56,6 +57,7 @@ export default function Dashboard({ profile, foodLogs, dailyTotals, workouts, mu
   const weekVolume = muscleVolume.filter((row) => row.weekKey === week).reduce((sum, row) => sum + row.volume, 0);
   const weekSessions = workouts.filter((workout) => weekKey(workout.date) === week);
   const weekSets = weekSessions.reduce((sum, workout) => sum + (workout.sets?.length ?? 0), 0);
+  const weekDistance = weekSessions.reduce((sum, workout) => sum + (workout.distance ?? 0), 0);
   const lastWorkout = workouts[0];
   const latestWeight = bodyweightLogs.at(-1);
   const trend = weightTrend(bodyweightLogs).at(-1)?.trend;
@@ -173,10 +175,16 @@ export default function Dashboard({ profile, foodLogs, dailyTotals, workouts, mu
             </div>
             {(lastWorkout || neglected.length > 0) && (
               <div className="detail-list">
+                {weekDistance > 0 && (
+                  <div className="detail-row">
+                    <span className="muted">Distance this week</span>
+                    <span className="truncate">{fmtDistance(weekDistance, profile.units)}</span>
+                  </div>
+                )}
                 {lastWorkout && (
                   <div className="detail-row">
                     <span className="muted">Last session</span>
-                    <span className="truncate">{fmtDate(lastWorkout.date, 'EEE d MMM')} · {lastSessionNames.slice(0, 2).join(', ') || `${lastWorkout.sets?.length ?? 0} sets`}</span>
+                    <span className="truncate">{fmtDate(lastWorkout.date, 'EEE d MMM')} · {lastWorkout.name || lastSessionNames.slice(0, 2).join(', ') || `${lastWorkout.sets?.length ?? 0} sets`}{lastWorkout.distance > 0 ? ` · ${fmtDistance(lastWorkout.distance, profile.units)}` : ''}</span>
                   </div>
                 )}
                 {neglected.length > 0 && (

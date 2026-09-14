@@ -264,10 +264,12 @@ export function ExerciseModal({ exercise, onClose, onSave, onDelete }) {
   );
 }
 
-const toSetDraft = (set, units) => ({ exerciseId: String(set.exerciseId ?? ''), weight: text(set.weight ? toDisplayWeight(set.weight, units) : ''), reps: text(set.reps ?? ''), rpe: text(set.rpe ?? '') });
-const blankSet = (exerciseId) => ({ exerciseId: String(exerciseId ?? ''), weight: '', reps: '8', rpe: '' });
+// A timed set (from a live session: a 60 s plank) keeps `seconds` and edits it in place of reps.
+const toSetDraft = (set, units) => ({ exerciseId: String(set.exerciseId ?? ''), weight: text(set.weight ? toDisplayWeight(set.weight, units) : ''), reps: text(set.reps ?? ''), seconds: text(set.seconds ?? ''), rpe: text(set.rpe ?? '') });
+const blankSet = (exerciseId) => ({ exerciseId: String(exerciseId ?? ''), weight: '', reps: '8', seconds: '', rpe: '' });
 const comparable = (date, sets) => JSON.stringify({ date, sets: sets.map(({ done: _done, ...set }) => set) });
-const fmtSetShort = (set, units) => `${set.weight ? toDisplayWeight(set.weight, units) : 'BW'}×${set.reps}`;
+const fmtSetShort = (set, units) => `${set.weight ? toDisplayWeight(set.weight, units) : 'BW'}×${set.seconds ? `${set.seconds}s` : set.reps}`;
+const isTimedDraft = (set) => set.seconds !== '' && set.seconds != null;
 
 export function WorkoutModal({ workout, template, exercises, workouts = [], units, restSeconds = 90, onRestSecondsChange, onClose, onSave, onDelete }) {
   const source = workout ?? template;
@@ -285,7 +287,7 @@ export function WorkoutModal({ workout, template, exercises, workouts = [], unit
     updateSet(index, { done });
     if (done) timer.start(restSeconds);
   };
-  const validSets = sets.filter((set) => set.exerciseId && num(set.reps) > 0);
+  const validSets = sets.filter((set) => set.exerciseId && (isTimedDraft(set) ? num(set.seconds) > 0 : num(set.reps) > 0));
   const findExercise = (id) => exercises.find((exercise) => String(exercise.id) === String(id));
   const previousBest = bestE1rmByExercise(workouts, { excludeId: workout?.id });
 
@@ -301,7 +303,12 @@ export function WorkoutModal({ workout, template, exercises, workouts = [], unit
 
   const save = () => {
     if (!validSets.length) return;
-    onSave({ date, sets: validSets.map((set) => ({ exerciseId: set.exerciseId, reps: num(set.reps), weight: fromDisplayWeight(num(set.weight), units), rpe: set.rpe === '' ? null : num(set.rpe) })) });
+    onSave({ date, sets: validSets.map((set) => ({
+      exerciseId: set.exerciseId,
+      ...(isTimedDraft(set) ? { reps: 0, seconds: Math.round(num(set.seconds)) } : { reps: num(set.reps) }),
+      weight: fromDisplayWeight(num(set.weight), units),
+      rpe: set.rpe === '' ? null : num(set.rpe)
+    })) });
   };
 
   const close = () => onClose(dirty);
@@ -348,7 +355,9 @@ export function WorkoutModal({ workout, template, exercises, workouts = [], unit
               </div>
               <div className="set-fields">
                 <label className="set-field"><span>{exercise?.equipment === 'bodyweight' ? `+${weightUnitLabel(units)}` : weightUnitLabel(units)}</span><NumberInput step="0.5" value={set.weight} onChange={(weight) => updateSet(index, { weight })} placeholder="0" /></label>
-                <label className="set-field"><span>reps</span><NumberInput step="1" value={set.reps} onChange={(reps) => updateSet(index, { reps })} inputMode="numeric" placeholder="0" /></label>
+                {isTimedDraft(set)
+                  ? <label className="set-field"><span>sec</span><NumberInput step="1" value={set.seconds} onChange={(seconds) => updateSet(index, { seconds })} inputMode="numeric" placeholder="0" /></label>
+                  : <label className="set-field"><span>reps</span><NumberInput step="1" value={set.reps} onChange={(reps) => updateSet(index, { reps })} inputMode="numeric" placeholder="0" /></label>}
                 <label className="set-field"><span>RPE</span><NumberInput step="0.5" max={10} value={set.rpe} onChange={(rpe) => updateSet(index, { rpe })} placeholder="–" /></label>
                 <div className="set-buttons">
                   <IconButton label={set.done ? `Mark set ${index + 1} not done` : `Mark set ${index + 1} done and start rest`} aria-pressed={Boolean(set.done)} className={`btn-icon done-toggle ${set.done ? 'active' : ''}`} onClick={() => toggleDone(index)}><Check size={17} /></IconButton>
