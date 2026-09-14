@@ -3,12 +3,27 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+
+# The branch-based (peaceiris/actions-gh-pages) flow this replaced pushed a
+# working gh-pages branch every time but depended on Settings → Pages →
+# Source being pointed at that branch by hand — a toggle that's easy to
+# never have set, which is exactly what a green deploy + a 404 on the live
+# site looks like. The official Actions flow below creates/points the Pages
+# site itself (via the pages:write permission), so there's no separate
+# manual step to forget.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,7 +36,7 @@ jobs:
       # stack trace copied off a phone can be mapped back to real source.
       # They're worth keeping, just not in the published site: attaching them
       # to the run keeps each build's own maps retrievable without pushing
-      # several MB of them into gh-pages history on every single merge.
+      # several MB of them into the Pages deployment on every single merge.
       - name: Keep this build's sourcemaps with the run
         uses: actions/upload-artifact@v4
         with:
@@ -38,25 +53,18 @@ jobs:
       - name: Leave app sourcemaps out of the published site
         run: rm -f dist/assets/*.map
 
-      # GitHub sometimes rejects the gh-pages push from its own end, leaving
-      # the live site a commit behind a clean, already-merged build — exactly
-      # the kind of failure that looks like the fix itself didn't work. One
-      # retry, because the failure isn't ours to fix.
-      - name: Publish to gh-pages
-        id: publish
-        continue-on-error: true
-        uses: peaceiris/actions-gh-pages@v4
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./dist
+          path: ./dist
 
-      - name: Give GitHub a moment before retrying
-        if: steps.publish.outcome == 'failure'
-        run: sleep 30
-
-      - name: Publish to gh-pages (retry)
-        if: steps.publish.outcome == 'failure'
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
