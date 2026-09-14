@@ -25,3 +25,13 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+__pycache__/
+
+# Claude Code worktrees (isolated agent runs — full nested checkouts, never committed)
+.claude/worktrees/
+
+# Exercise-library scrape pipeline: regeneratable via `npm run scrape:exercises` /
+# `audit:exercises` / `import:exercises` (see src/data/exercise-library/README.md).
+# The imported result lives in src/data/exercise-library/, which IS tracked.
+/.cache/
+/downloads/

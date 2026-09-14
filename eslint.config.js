@@ -4,12 +4,19 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 
 export default [
-  { ignores: ['dist'] },
+  // public/tesseract is vendored, minified third-party OCR runtime — never our code to lint.
+  { ignores: ['dist', 'dev-dist', '.claude', 'public/tesseract'] },
   {
     files: ['**/*.{js,jsx}'],
     languageOptions: {
       ecmaVersion: 2020,
-      globals: globals.browser,
+      globals: {
+        ...globals.browser,
+        // Vite `define` constants — see vite.config.js and src/buildInfo.js.
+        __APP_VERSION__: 'readonly',
+        __APP_COMMIT__: 'readonly',
+        __APP_BUILT_AT__: 'readonly'
+      },
       parserOptions: { ecmaVersion: 'latest', ecmaFeatures: { jsx: true }, sourceType: 'module' }
     },
     plugins: {

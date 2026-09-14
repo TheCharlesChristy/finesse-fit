@@ -1,53 +1,63 @@
 import { useEffect, useRef, useState } from 'react';
 import { BrowserMultiFormatReader } from '@zxing/browser';
-import { X } from 'lucide-react';
-import { IconButton } from './ui.jsx';
+import { Search } from 'lucide-react';
+import { Modal } from './ui.jsx';
 
 const FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e'];
 
 export default function BarcodeScanner({ onDetected, onClose }) {
   const videoRef = useRef(null);
-  const streamRef = useRef(null);
-  const lastRef = useRef({ code: null, time: 0 });
-  const [error, setError] = useState('');
+  const detectedRef = useRef(onDetected);
+  const [status, setStatus] = useState('starting');
+  const [manual, setManual] = useState('');
 
+  useEffect(() => {
+    detectedRef.current = onDetected;
+  });
+
+  // Runs once per open. Depending on onDetected here would tear down and
+  // re-acquire the camera every time the parent re-rendered.
   useEffect(() => {
     let stopped = false;
     let raf = 0;
     let controls = null;
-
-    const stop = () => {
-      stopped = true;
-      cancelAnimationFrame(raf);
-      controls?.stop?.();
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    };
+    let stream = null;
+    let found = false;
 
     const emit = (code) => {
-      const now = Date.now();
-      if (!code || (lastRef.current.code === code && now - lastRef.current.time < 1800)) return;
-      lastRef.current = { code, time: now };
-      onDetected(String(code));
+      if (!code || found || stopped) return;
+      found = true;
+      navigator.vibrate?.(40);
+      detectedRef.current(String(code));
     };
 
     const start = async () => {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setStatus('unavailable');
+        return;
+      }
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        if (stopped) return;
-        streamRef.current = stream;
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        if (stopped) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
+        setStatus('scanning');
 
-        if ('BarcodeDetector' in window) {
+        const supported = 'BarcodeDetector' in window && (await window.BarcodeDetector.getSupportedFormats?.())?.some((format) => FORMATS.includes(format));
+        if (supported) {
           const detector = new window.BarcodeDetector({ formats: FORMATS });
           const tick = async () => {
             if (stopped) return;
             try {
-              const codes = await detector.detect(videoRef.current);
-              if (codes[0]?.rawValue) emit(codes[0].rawValue);
+              if (videoRef.current?.readyState >= 2) {
+                const codes = await detector.detect(videoRef.current);
+                if (codes[0]?.rawValue) emit(codes[0].rawValue);
+              }
             } catch {
-              setError('Scanner is warming up');
+              // Frames can fail to decode while the camera settles; keep polling.
             }
             raf = requestAnimationFrame(tick);
           };
@@ -57,29 +67,43 @@ export default function BarcodeScanner({ onDetected, onClose }) {
           controls = await reader.decodeFromVideoElement(videoRef.current, (result) => {
             if (result) emit(result.getText());
           });
+          if (stopped) controls.stop();
         }
-      } catch {
-        setError('Camera unavailable. You can still search or add food manually.');
+      } catch (error) {
+        if (!stopped) setStatus(error?.name === 'NotAllowedError' ? 'denied' : 'unavailable');
       }
     };
 
     start();
-    return stop;
-  }, [onDetected]);
+    return () => {
+      stopped = true;
+      cancelAnimationFrame(raf);
+      controls?.stop?.();
+      stream?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  const code = manual.replace(/\D/g, '');
+  const message = {
+    starting: 'Starting camera…',
+    scanning: 'Line the barcode up inside the frame.',
+    denied: 'Camera permission was denied. Allow camera access in your browser settings, or type the barcode below.',
+    unavailable: 'Camera unavailable on this device. Type the barcode below instead.'
+  }[status];
 
   return (
-    <div className="modal-overlay" role="presentation">
-      <div className="glass-strong panel stack">
-        <div className="split">
-          <strong>Scan barcode</strong>
-          <IconButton label="Close scanner" onClick={onClose}><X size={19} /></IconButton>
-        </div>
+    <Modal title="Scan barcode" onClose={onClose} onSubmit={() => code.length >= 6 && onDetected(code)}>
+      {(status === 'starting' || status === 'scanning') && (
         <div className="scanner">
           <video ref={videoRef} muted playsInline aria-label="Barcode scanner camera preview" />
           <div className="reticle" />
         </div>
-        {error && <span className="status-warn">{error}</span>}
+      )}
+      <span className={status === 'denied' || status === 'unavailable' ? 'status-warn scanner-status' : 'muted'}>{message}</span>
+      <div className="row" style={{ flexWrap: 'nowrap' }}>
+        <input className="input" inputMode="numeric" autoComplete="off" placeholder="Or type the barcode number" aria-label="Barcode number" value={manual} onChange={(event) => setManual(event.target.value)} />
+        <button className="btn-secondary" type="submit" disabled={code.length < 6}><Search size={18} /> Look up</button>
       </div>
-    </div>
+    </Modal>
   );
 }
