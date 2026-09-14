@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#08111f" />
+    <meta name="description" content="Finesse Fit workout and nutrition tracker" />
+    <link rel="icon" type="image/svg+xml" href="/finesse-fit/favicon.svg" />
+    <title>Finesse Fit</title>
+    <script>
+      // Apply the saved palette/theme before first paint. App.jsx keeps this in sync.
+      (function () {
+        try {
+          var saved = JSON.parse(localStorage.getItem('finesse-fit:appearance') || '{}');
+          var root = document.documentElement;
+          var light = saved.themeMode === 'light' || (saved.themeMode === 'system' && window.matchMedia('(prefers-color-scheme: light)').matches);
+          root.dataset.theme = light ? 'light' : 'dark';
+          if (saved.palette) root.dataset.palette = saved.palette;
+        } catch (e) { /* first run or storage blocked: CSS defaults apply */ }
+      })();
+    </script>
+    <script type="module" crossorigin src="/finesse-fit/assets/index-CyD6xWYI.js"></script>
+    <link rel="modulepreload" crossorigin href="/finesse-fit/assets/vendor-ocr-DkSqF2Y6.js">
+    <link rel="stylesheet" crossorigin href="/finesse-fit/assets/index-DvsKAhBk.css">
+  <link rel="manifest" href="/finesse-fit/manifest.webmanifest"></head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
