@@ -573,7 +573,15 @@ When you touch a derived-counter mutation in `db.js` or add non-trivial logic to
 
 - **Plesk** — upload `dist/` contents to a subdomain's document root
 - **Netlify / Vercel** — connect the repo, build command `npm run build`, publish `dist`
-- **GitHub Pages** — set `base: '/repo-name/'` in `vite.config.js` first
+- **GitHub Pages** — automated, see below
+
+### CI — GitHub Pages (`.github/workflows/deploy.yml`)
+
+Every push to `main` builds and publishes `dist/` to the `gh-pages` branch via `peaceiris/actions-gh-pages`, with one retry if GitHub's own push rejects it (this has happened on a clean build for no fault of the repo's — worth a retry before failing the run). No test or lint gate — this mirrors Finesse's own deploy workflow, which the same author maintains and keeps green by hand before merging.
+
+`vite.config.js`'s `base: '/finesse-fit/'` and the PWA manifest's `start_url`/`scope`/`shortcuts` are hardcoded to that same path — vite-plugin-pwa doesn't infer these from `base`, so **if the repo or Pages path ever changes, update both together** or an installed PWA opens to the wrong scope. `build.sourcemap: 'hidden'` writes real sourcemaps (for mapping a stack trace copied off a phone back to source) without a browser ever fetching them; the workflow uploads each build's `dist/**/*.map` as a run artifact, then strips the app-chunk maps under `dist/assets/` before publishing (`sw.js`/`workbox-*.js` keep theirs — small, and self-referenced).
+
+One-time setup this workflow assumes is already done: **Settings → Pages → Source: Deploy from a branch → `gh-pages`** on the repo itself.
 
 ### PWA installation (iPhone)
 
