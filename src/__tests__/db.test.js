@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
-  addBodyweightLog, addExercise, addFood, addFoodLog, addGoal, addProgressPhoto, addQuickLog, addWorkout,
-  clearAllData, copyFoodLogs, db, deleteFoodLog, deleteWorkout, exportData, getCustomExercises, getDailyTotals,
-  DEFAULT_PROFILE, getFoodLogs, getGoals, getMuscleVolume, getProfile, getProgressPhotos, getWorkouts, importData, restoreFoodLog,
-  restoreRow, restoreWorkout, saveProfile, updateFood, updateFoodLog, updateWorkout, validateImport
+  addBodyweightLog, addExercise, addFood, addFoodLog, addGoal, addPlan, addProgressPhoto, addQuickLog, addRoute, addWorkout,
+  clearAllData, copyFoodLogs, db, DEFAULT_PROFILE, deleteFoodLog, deleteWorkout, exportData, getActiveSession, getCustomExercises, getDailyTotals,
+  getFoodLogs, getGoals, getMuscleVolume, getPlans, getProfile, getProgressPhotos, getRoutes, getTrackForWorkout, getWorkouts,
+  hasActiveSession, importData, restoreFoodLog, restoreRow, restoreWorkout, saveActiveSession, saveProfile, saveSessionWorkout, updateFood,
+  updateFoodLog, updatePlan, updateWorkout, validateImport
 } from '../db.js';
 import { calculateNutritionTargets, dateKey, weekKey } from '../utils.js';
 
@@ -275,5 +276,90 @@ describe('generic undo (restoreRow) and a full reset', () => {
     expect(await getDailyTotals()).toHaveLength(0);
     expect(await getProgressPhotos()).toHaveLength(0);
     expect(await db.profile.get(1)).toMatchObject({ id: 1 });
+  });
+});
+
+describe('live sessions, plans, routes and GPS tracks', () => {
+  const PLANK = { name: 'Plank', isCustom: true, equipment: 'bodyweight', primaryMuscles: ['abs'], secondaryMuscles: [] };
+  const segments = [[[51.5, -0.12, 1000, 5, null], [51.501, -0.12, 30_000, 5, null]]];
+
+  it('keeps timed sets (seconds, no reps) instead of dropping them', async () => {
+    const plankId = await addExercise(PLANK);
+    await addWorkout({ date: today, sets: [{ exerciseId: plankId, reps: 0, seconds: 60 }] }, [{ ...PLANK, id: plankId }]);
+    const [workout] = await getWorkouts();
+    expect(workout.sets).toHaveLength(1);
+    expect(workout.sets[0]).toMatchObject({ reps: 0, seconds: 60 });
+  });
+
+  it('saveSessionWorkout stores cardio extras and the track together, and clears the active session', async () => {
+    const benchId = await addExercise(BENCH);
+    await saveActiveSession({ name: 'In progress' });
+    const id = await saveSessionWorkout({
+      workout: { date: today, name: 'Run + bench', durationSeconds: 1800, distance: 5000, cardio: [{ activity: 'run', meters: 5000, seconds: 1500 }], sets: [{ exerciseId: benchId, reps: 5, weight: 100 }], track: 'ignored' },
+      track: { activity: 'run', segments }
+    }, [{ ...BENCH, id: benchId }]);
+
+    const workout = await db.workouts.get(id);
+    expect(workout).toMatchObject({ name: 'Run + bench', distance: 5000, durationSeconds: 1800 });
+    expect(workout.track).toBeUndefined();
+    expect((await getTrackForWorkout(id)).segments).toEqual(segments);
+    expect(await hasActiveSession()).toBe(0);
+    expect((await getMuscleVolume()).find((row) => row.muscle === 'chest').volume).toBe(500);
+  });
+
+  it('deleting a run removes its track and Undo brings both back', async () => {
+    const id = await saveSessionWorkout({ workout: { date: today, sets: [], cardio: [{ activity: 'run', meters: 100 }] }, track: { segments } });
+    const removed = await deleteWorkout(id);
+    expect(await getTrackForWorkout(id)).toBeUndefined();
+    expect(removed.track.segments).toEqual(segments);
+
+    await restoreWorkout(removed);
+    expect((await getTrackForWorkout(id)).segments).toEqual(segments);
+    expect((await db.workouts.get(id)).track).toBeUndefined();
+  });
+
+  it('reads legacy { sets } templates as block plans, and saves plans normalised', async () => {
+    await db.templates.add({ name: 'Old', sets: [{ exerciseId: 'a', reps: 5, weight: 100 }, { exerciseId: 'a', reps: 5, weight: 100 }] });
+    const id = await addPlan({ name: ' Intervals ', blocks: [{ kind: 'intervals', repeats: 4 }] });
+    const plans = await getPlans();
+    expect(plans.find((plan) => plan.name === 'Old').blocks[0]).toMatchObject({ kind: 'exercise', sets: 2, reps: 5 });
+    expect(plans.find((plan) => plan.id === id)).toMatchObject({ name: 'Intervals', blocks: [{ kind: 'intervals', repeats: 4 }] });
+
+    await updatePlan(id, { name: 'Intervals v2', blocks: [] });
+    expect((await getPlans()).find((plan) => plan.id === id).name).toBe('Intervals v2');
+  });
+
+  it('export → import remaps plan exercises, route links and track owners', async () => {
+    const benchId = await addExercise(BENCH);
+    const routeId = await addRoute({ name: 'Park loop', path: [[51.5, -0.12], [51.51, -0.12]], distance: 1112 });
+    const planId = await addPlan({ name: 'Mixed', blocks: [{ kind: 'exercise', exerciseId: benchId }, { kind: 'cardio', routeId, goal: { type: 'distance', meters: 1112 } }] });
+    await saveSessionWorkout({ workout: { date: today, planId, routeId, sets: [{ exerciseId: benchId, reps: 5, weight: 60 }], cardio: [{ activity: 'run', meters: 1112 }] }, track: { segments } }, [{ ...BENCH, id: benchId }]);
+    const payload = JSON.parse(JSON.stringify(await exportData()));
+    expect(payload.version).toBe(4);
+    expect(payload.activeSession).toBeUndefined();
+
+    await Promise.all(db.tables.map((table) => table.clear()));
+    await db.exercises.add({ name: 'Padding so ids shift' });
+    await db.routes.add({ name: 'Padding' });
+    await importData(payload, 'merge');
+
+    const exercise = (await getCustomExercises()).find((row) => row.name === BENCH.name);
+    const route = (await getRoutes()).find((row) => row.name === 'Park loop');
+    const plan = (await getPlans()).find((row) => row.name === 'Mixed');
+    const [workout] = await getWorkouts();
+    expect(plan.blocks[0].exerciseId).toBe(exercise.id);
+    expect(plan.blocks[1].routeId).toBe(route.id);
+    expect(workout).toMatchObject({ planId: plan.id, routeId: route.id });
+    expect((await getTrackForWorkout(workout.id)).segments).toEqual(segments);
+  });
+
+  it('clearAllData also wipes routes, tracks and a session in progress', async () => {
+    await addRoute({ name: 'Loop' });
+    await saveSessionWorkout({ workout: { date: today, sets: [] }, track: { segments } });
+    await saveActiveSession({ name: 'Half done' });
+    await clearAllData();
+    expect(await getRoutes()).toHaveLength(0);
+    expect(await db.tracks.count()).toBe(0);
+    expect(await getActiveSession()).toBeUndefined();
   });
 });

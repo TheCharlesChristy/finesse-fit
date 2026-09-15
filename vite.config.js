@@ -21,6 +21,7 @@ function gitCommit() {
 }
 
 export default defineConfig({
+  base: '/finesse-fit/',
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
     __APP_COMMIT__: JSON.stringify(gitCommit()),
@@ -40,8 +41,10 @@ export default defineConfig({
         background_color: '#08111f',
         display: 'standalone',
         orientation: 'portrait',
-        start_url: '/',
-        scope: '/',
+        // vite-plugin-pwa doesn't infer these from `base` — they have to match
+        // it explicitly, or an installed PWA opens to the wrong scope.
+        start_url: '/finesse-fit/',
+        scope: '/finesse-fit/',
         icons: [
           {
             src: 'favicon.svg',
@@ -52,15 +55,16 @@ export default defineConfig({
         ],
         // Long-press the home-screen icon. Handled by the ?action= effect in App.jsx.
         shortcuts: [
-          { name: 'Scan barcode', short_name: 'Scan', url: '/?action=scan', icons: [{ src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml' }] },
-          { name: 'Log workout', short_name: 'Workout', url: '/?action=workout', icons: [{ src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml' }] },
-          { name: 'Log food', short_name: 'Food', url: '/?action=food', icons: [{ src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml' }] }
+          { name: 'Scan barcode', short_name: 'Scan', url: '/finesse-fit/?action=scan', icons: [{ src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml' }] },
+          { name: 'Log workout', short_name: 'Workout', url: '/finesse-fit/?action=workout', icons: [{ src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml' }] },
+          { name: 'Start a run', short_name: 'Run', url: '/finesse-fit/?action=run', icons: [{ src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml' }] },
+          { name: 'Log food', short_name: 'Food', url: '/finesse-fit/?action=food', icons: [{ src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml' }] }
         ]
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         globDirectory: 'dist',
-        navigateFallback: '/index.html',
+        navigateFallback: '/finesse-fit/index.html',
         // Label-scan OCR is opt-in and rarely opened, but its worker script,
         // wasm core and language data under public/tesseract/ are ~8.5MB —
         // all of it would otherwise match the glob above and get pulled into
@@ -68,6 +72,20 @@ export default defineConfig({
         // only the first time someone actually opens that flow.
         globIgnores: ['tesseract/**', 'assets/vendor-ocr-*.js'],
         runtimeCaching: [
+          {
+            // OpenStreetMap tiles (src/mapTiles.js). Only tiles someone has
+            // actually looked at get cached — OSM's usage policy forbids
+            // bulk pre-fetching — so a route you've viewed before still has
+            // a map on a patchy-signal run. Requested with CORS (RouteMap
+            // sets crossOrigin) so these aren't opaque, padded responses.
+            urlPattern: ({ url }) => url.hostname === 'tile.openstreetmap.org',
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'map-tiles',
+              expiration: { maxEntries: 1500, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [200] }
+            }
+          },
           {
             // Tesseract's worker/core/language files, plus its own script
             // chunk — all same-origin, none precached (see globIgnores
@@ -88,6 +106,12 @@ export default defineConfig({
     })
   ],
   build: {
+    // 'hidden' writes .map files with no //# sourceMappingURL comment, so no
+    // browser ever fetches them — they exist only for mapping a raw stack
+    // trace (copied off a phone with no attached devtools) back to real
+    // source, using the dist output or the CI artifact from that exact
+    // build. See .github/workflows/deploy.yml for where they end up.
+    sourcemap: 'hidden',
     rollupOptions: {
       output: {
         manualChunks(id) {

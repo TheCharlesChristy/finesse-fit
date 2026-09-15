@@ -557,6 +557,14 @@ describe('fmtDuration / fmtWeight', () => {
 describe('buildAiContext', () => {
   const profile = { units: 'metric', bodyweight: 78, targetBodyweight: 70, targetBodyFat: 12, targets: { calories: 2175, protein: 155, carbs: 249, fat: 62 } };
 
+  it('includes a live session\'s name, cardio segments and timed sets', () => {
+    const todayWorkouts = [{ date: '2026-09-14', name: 'Intervals', durationSeconds: 1500, cardio: [{ activity: 'run', label: 'Rep 1 of 6', meters: 400, seconds: 92 }], sets: [{ exerciseId: 'plank', reps: 0, seconds: 60, weight: 0 }] }];
+    const text = buildAiContext({ today: '2026-09-14', profile, totals: {}, meals: [], todayWorkouts, exercises: [{ id: 'plank', name: 'Plank' }], goals: [], goalData: {} });
+    expect(text).toContain('Intervals (25:00):');
+    expect(text).toContain('- Rep 1 of 6: 400 m, 1:32, 3:50 /km');
+    expect(text).toContain('- Plank: 60s');
+  });
+
   it('states targets, remaining calories and a nothing-logged/no-workout/no-goals fallback when the day is empty', () => {
     const text = buildAiContext({ today: '2026-09-14', profile, totals: {}, meals: [], todayWorkouts: [], exercises: [], goals: [], goalData: {} });
     expect(text).toContain('Daily calories: 2,175 kcal');

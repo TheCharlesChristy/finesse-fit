@@ -5,6 +5,7 @@ import { CardTitle, EmptyState, IconButton, PageHeader } from '../components/ui.
 import StatRing from '../components/StatRing.jsx';
 import WeekReview from '../components/WeekReview.jsx';
 import { MUSCLES } from '../data/exercises.js';
+import { fmtDistance } from '../geo.js';
 import { buildAiContext, EXTRA_NUTRIENTS, GOAL_STATUS, backupReminder, dateKey, fmtCalories, fmtCompact, fmtDate, fmtWeight, goalProgress, groupLogsByMeal, mealLabel, muscleLabel, neglectedMuscles, percent, shiftDay, shiftWeekKey, weekDays, weekKey, weekLabel, weeklyReview, weightRatePerWeek, weightTrend } from '../utils.js';
 
 function LedgerRow({ label, value, target, unit, color }) {
@@ -13,7 +14,7 @@ function LedgerRow({ label, value, target, unit, color }) {
   return (
     <div className="ledger-row">
       <span className="eyebrow">{label}</span>
-      <div className="ledger-track"><div className={`ledger-fill ${over ? 'over' : ''}`} style={{ '--value': `${Math.min(100, pct)}%`, '--bar': color }} /></div>
+      <div className="progress-track thin"><div className={`progress-fill ${over ? 'over' : ''}`} style={{ '--value': `${Math.min(100, pct)}%`, '--bar': color }} /></div>
       <span className="metric ledger-value">{Math.round(value ?? 0)}<span className="ledger-unit">/{Math.round(target)}{unit}</span></span>
     </div>
   );
@@ -24,8 +25,8 @@ function HeroNutrition({ totals, targets }) {
   const remaining = Math.round((targets.calories ?? 0) - (totals.calories ?? 0));
   const over = remaining < 0;
   return (
-    <section className="card panel hero-nutrition">
-      <div className="hero-ring-wrap">
+    <section className="card hero">
+      <div className="hero-ring">
         <StatRing pct={calPct} size={168} thickness={13} over={over} />
         <div className="hero-ring-center">
           <span className="eyebrow">{over ? 'Over target' : 'Calories left'}</span>
@@ -56,6 +57,7 @@ export default function Dashboard({ profile, foodLogs, dailyTotals, workouts, mu
   const weekVolume = muscleVolume.filter((row) => row.weekKey === week).reduce((sum, row) => sum + row.volume, 0);
   const weekSessions = workouts.filter((workout) => weekKey(workout.date) === week);
   const weekSets = weekSessions.reduce((sum, workout) => sum + (workout.sets?.length ?? 0), 0);
+  const weekDistance = weekSessions.reduce((sum, workout) => sum + (workout.distance ?? 0), 0);
   const lastWorkout = workouts[0];
   const latestWeight = bodyweightLogs.at(-1);
   const trend = weightTrend(bodyweightLogs).at(-1)?.trend;
@@ -130,7 +132,7 @@ export default function Dashboard({ profile, foodLogs, dailyTotals, workouts, mu
                   <span>{mealLabel(meal)}</span>
                   <span className="row" style={{ gap: 2, flexWrap: 'nowrap' }}>
                     {fmtCalories(logs.reduce((sum, log) => sum + (log.computed?.calories ?? 0), 0))}
-                    <IconButton label={`Save ${mealLabel(meal).toLowerCase()} as a meal`} className="btn-icon btn-icon-sm" onClick={() => onSaveMeal(meal, logs)}><BookmarkPlus size={15} /></IconButton>
+                    <IconButton label={`Save ${mealLabel(meal).toLowerCase()} as a meal`} className="btn-icon btn-sm" onClick={() => onSaveMeal(meal, logs)}><BookmarkPlus size={15} /></IconButton>
                   </span>
                 </div>
                 <div className="list">
@@ -166,21 +168,27 @@ export default function Dashboard({ profile, foodLogs, dailyTotals, workouts, mu
         <div className="layout-aside">
           <section className="card panel stack">
             <CardTitle icon={Dumbbell} action={<button className="btn-ghost" type="button" onClick={onAddWorkout}><Plus size={16} /> Log</button>}>This week</CardTitle>
-            <div className="stat-row">
+            <div className="stat-grid tight">
               <div><div className="metric">{weekSessions.length}</div><span className="muted">sessions</span></div>
               <div><div className="metric">{weekSets}</div><span className="muted">sets</span></div>
               <div><div className="metric">{fmtCompact(weekVolume)}</div><span className="muted">volume</span></div>
             </div>
             {(lastWorkout || neglected.length > 0) && (
               <div className="detail-list">
+                {weekDistance > 0 && (
+                  <div className="detail-row">
+                    <span className="muted">Distance this week</span>
+                    <span className="truncate">{fmtDistance(weekDistance, profile.units)}</span>
+                  </div>
+                )}
                 {lastWorkout && (
                   <div className="detail-row">
                     <span className="muted">Last session</span>
-                    <span className="truncate">{fmtDate(lastWorkout.date, 'EEE d MMM')} · {lastSessionNames.slice(0, 2).join(', ') || `${lastWorkout.sets?.length ?? 0} sets`}</span>
+                    <span className="truncate">{fmtDate(lastWorkout.date, 'EEE d MMM')} · {lastWorkout.name || lastSessionNames.slice(0, 2).join(', ') || `${lastWorkout.sets?.length ?? 0} sets`}{lastWorkout.distance > 0 ? ` · ${fmtDistance(lastWorkout.distance, profile.units)}` : ''}</span>
                   </div>
                 )}
                 {neglected.length > 0 && (
-                  <button type="button" className="detail-row as-button" onClick={() => onSetView('progress')}>
+                  <button type="button" className="detail-row" onClick={() => onSetView('progress')}>
                     <span className="muted">Needs attention</span>
                     <span className="truncate">{neglected.map((row) => muscleLabel(row.muscle)).join(', ')}</span>
                   </button>

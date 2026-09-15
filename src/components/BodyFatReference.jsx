@@ -17,21 +17,21 @@ export default function BodyFatReference({ sex, onSexChange, value, onPick }) {
         options={[{ value: 'male', label: 'Men' }, { value: 'female', label: 'Women' }]}
         onChange={onSexChange}
       />
-      <div className="stack" style={{ gap: 6 }}>
+      <div className="list">
         {references.map((reference) => {
           const selected = value === reference.bodyFat;
           return (
             <button
               key={reference.bodyFat}
               type="button"
-              className={`list-row row bodyfat-row ${selected ? 'active' : ''}`}
+              className={`list-row bodyfat-row ${selected ? 'selected' : ''}`}
               aria-pressed={selected}
               onClick={() => onPick(selected ? null : reference.bodyFat)}
             >
               <strong className="bodyfat-value">{reference.bodyFat}%</strong>
-              <span className="stack bodyfat-text" style={{ gap: 1 }}>
-                <strong>{reference.label}</strong>
-                <span className="muted">{reference.description}</span>
+              <span className="list-main">
+                <span className="list-title">{reference.label}</span>
+                <span className="list-sub">{reference.description}</span>
               </span>
               {selected && <Check size={18} className="bodyfat-check" />}
             </button>

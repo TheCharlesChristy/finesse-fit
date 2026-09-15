@@ -1,6 +1,6 @@
 # Finesse Fit — Workout & Nutrition Tracker
 
-A PWA-ready fitness tracker with barcode-driven food logging, nutrition-label OCR, per-muscle progress tracking, workout logging, and goal management. Local-first — all data lives in your browser's IndexedDB. No backend, no account, no network required (except the first time you scan an unknown barcode, tap "Search Open Food Facts", or scan a nutrition label — that last one only fetches its own on-device OCR engine, once, and never sends your photo anywhere).
+A PWA-ready fitness tracker with barcode-driven food logging, nutrition-label OCR, per-muscle progress tracking, workout logging, and goal management. Local-first — all data lives in your browser's IndexedDB. No backend, no account, no network required (except the first time you scan an unknown barcode, tap "Search Open Food Facts", or scan a nutrition label — that last one only fetches its own on-device OCR engine, once, and never sends your photo anywhere — plus OpenStreetMap map images while a map is on screen, and path snapping when you plan a route with "Follow paths" on). GPS tracking is on-device and works offline.
 
 ## Getting started
 
@@ -22,16 +22,24 @@ Deploy the `dist/` folder to any static host (Netlify, Vercel, your Plesk server
 2. Tap the Share button → "Add to Home Screen"
 3. It will appear as a full-screen app icon
 
-Camera access is required for barcode scanning — grant it when prompted.
+Camera access is required for barcode scanning, and location access for tracking runs — grant them when prompted. Keep the app open on screen during a run: phones pause GPS for web apps in the background.
 
 ## Features
 - **Dashboard** — today's calories and macros against target, today's meals, this week's training, goal progress at a glance, and a one-tap "AI context" export that turns all of that into a paste-ready summary for an AI chat
 - **Log Food** — scan a barcode to log food in seconds; resolves via local cache → Open Food Facts → manual entry. Recent foods and search for fast re-logging. Or photograph the pack's nutrition table and have the macros read for you to check and save
 - **Foods** — your local food library: scanned, searched, or hand-created; editable per-serving macros
-- **Workouts** — log sessions down to the individual set (exercise, reps, weight, RPE), with rapid multi-row entry
+- **Workouts** — design plans from blocks (sets × reps or time, circuits, runs, interval runs, rests), then start one and tick it off as you go: automatic rest countdowns, hands-free timed circuits and intervals with beeps and optional voice cues, last-session weights pre-filled, and a finished session saved with PR detection. Or log a past session set by set
+- **Runs & routes** — GPS-tracked runs with live distance, pace, splits and a map; plan a route on an OpenStreetMap map (tap to plot, snapped to paths) and run it with the route on screen; export any run as GPX
 - **Progress** — per-muscle volume over time, a colour-coded muscle map, lift strength curves, bodyweight trend, and a private on-device progress-photo gallery
 - **Goals** — strength, bodyweight, weekly-volume, or nutrition-adherence goals, each with a live progress status (bodyweight goals also show an estimated time-to-target)
-- **Settings** — colour palette, units, daily targets, persistent-storage/quota, backup export/import, app version and update check, full reset
+- **Settings** — appearance (twelve palettes plus a custom one, dark/light, three
+  surface finishes, density, corners, text size, contrast and motion), units,
+  daily targets, persistent-storage/quota, backup export/import, app version and
+  update check, full reset
+
+The look is shared with the [Finesse](https://github.com/TheCharlesChristy/finesse-app)
+finance app — same design system, same components, same appearance settings. See
+[DESIGN_SYSTEM.md](DESIGN_SYSTEM.md).
 
 ## Barcode scanning
 - Uses the native **BarcodeDetector** API where available (Android Chrome), falling back to **@zxing/browser** (iOS Safari)
@@ -45,7 +53,7 @@ Photograph the nutrition table on a pack and it's read on-device (no upload, eve
 Each exercise in the library declares **primary** and **secondary** muscles. When you log a workout, working volume is attributed to those muscles (primary weighted more heavily than secondary) and rolled up into weekly per-muscle totals. That's what powers the muscle map and volume charts.
 
 ## Data sync
-Export a `.json` backup from Settings — it opens your device's native share sheet (AirDrop, Messages, Files, email) where supported, or downloads the file. Import and choose "Replace" to sync. Choose "Merge" to combine datasets (may create duplicates). Progress photos are stored on-device only and are not included in the backup file.
+Export a `.json` backup from Settings — it opens your device's native share sheet (AirDrop, Messages, Files, email) where supported, or downloads the file. Import and choose "Replace" to sync. Choose "Merge" to combine datasets (may create duplicates). Progress photos are stored on-device only and are not included in the backup file. Workout plans, routes and GPS tracks are included.
 
 ## Staying up to date
 Installed as a home-screen app, Finesse Fit can sit on a cached build for a while. It checks for a new one hourly, and Settings → About has a "Check for update" button plus the running version/commit/build time.

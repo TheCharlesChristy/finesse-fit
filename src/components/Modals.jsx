@@ -33,19 +33,24 @@ function NumberInput({ value, onChange, step = 'any', min = 0, ...props }) {
   return <input className="input" type="number" inputMode="decimal" step={step} min={min} value={value} onChange={(e) => onChange(e.target.value)} onFocus={(e) => e.target.select()} {...props} />;
 }
 
-function Actions({ onClose, onDelete, deleteLabel = 'Delete', saveDisabled, saveLabel = 'Save', hint, top }) {
+/**
+ * The footer every editing dialog shares: destructive action on the left, the
+ * two decisions on the right, and anything that needs the full width (a rest
+ * timer, a reason Save is disabled) on its own row above them.
+ *
+ * Save carries `form={formId}` because the footer sits outside the scrolling
+ * body the `<form>` wraps — see `Modal` in ui.jsx.
+ */
+function Actions({ formId, onClose, onDelete, deleteLabel = 'Delete', saveDisabled, saveLabel = 'Save', hint, top }) {
   return (
-    <div className="stack modal-footer" style={{ gap: 8 }}>
-      {top}
-      {hint && <span className="muted modal-hint">{hint}</span>}
-      <div className="split modal-actions-split">
-        {onDelete ? <button className="btn-danger" type="button" onClick={onDelete}><Trash2 size={18} /> {deleteLabel}</button> : <span />}
-        <div className="row">
-          <button className="btn-secondary" type="button" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" type="submit" disabled={saveDisabled}><Save size={18} /> {saveLabel}</button>
-        </div>
-      </div>
-    </div>
+    <>
+      {top && <div className="full">{top}</div>}
+      {hint && <span className="full modal-hint">{hint}</span>}
+      {onDelete && <button className="btn-danger" type="button" onClick={onDelete}><Trash2 size={18} aria-hidden="true" /> {deleteLabel}</button>}
+      <span className="spacer" />
+      <button className="btn-secondary" type="button" onClick={onClose}>Cancel</button>
+      <button className="btn-primary" type="submit" form={formId} disabled={saveDisabled}><Save size={18} aria-hidden="true" /> {saveLabel}</button>
+    </>
   );
 }
 
@@ -89,7 +94,9 @@ export function FoodModal({ food, barcode, prefill, onClose, onSave }) {
   };
 
   return (
-    <Modal title={food ? 'Edit food' : 'Add food'} onClose={onClose} onSubmit={save}>
+    <Modal title={food ? 'Edit food' : 'Add food'} onClose={onClose} onSubmit={save}
+      footer={({ formId }) => <Actions formId={formId} onClose={onClose} saveDisabled={invalid} saveLabel={food ? 'Save' : barcode ? 'Save & log' : 'Save'} hint={grams <= 0 && draft.name.trim() ? 'Serving size must be above 0 g.' : null} />}
+    >
       {barcode && !food && <p className="status-warn" style={{ margin: 0, justifySelf: 'start' }}>Barcode {barcode} wasn’t found. Enter it from the label and it’ll be remembered.</p>}
       {prefill && !food && (
         <p className="muted" style={{ margin: 0 }}>
@@ -100,7 +107,7 @@ export function FoodModal({ food, barcode, prefill, onClose, onSave }) {
         <Field label="Name"><input className="input" value={draft.name} onChange={(e) => set({ name: e.target.value })} placeholder="Greek yoghurt" /></Field>
         <Field label="Brand"><input className="input" value={draft.brand} onChange={(e) => set({ brand: e.target.value })} placeholder="Optional" /></Field>
         <Field label="Barcode"><input className="input" inputMode="numeric" value={draft.barcode} onChange={(e) => set({ barcode: e.target.value })} placeholder="Optional" /></Field>
-        <div className="form-grid form-grid-tight">
+        <div className="form-grid">
           <Field label="Serving name"><input className="input" value={draft.servingLabel} onChange={(e) => set({ servingLabel: e.target.value })} /></Field>
           <Field label="Serving size (g)"><NumberInput value={draft.servingGrams} onChange={(servingGrams) => set({ servingGrams })} /></Field>
         </div>
@@ -118,7 +125,6 @@ export function FoodModal({ food, barcode, prefill, onClose, onSave }) {
         </div>
         {grams > 0 && <span className="muted">One {draft.servingLabel || 'serving'} ({round(grams, 0)} g) = {fmtCalories(perServing.calories)} · P {fmtMacro(perServing.protein)} · C {fmtMacro(perServing.carbs)} · F {fmtMacro(perServing.fat)}</span>}
       </div>
-      <Actions onClose={onClose} saveDisabled={invalid} saveLabel={food ? 'Save' : barcode ? 'Save & log' : 'Save'} hint={grams <= 0 && draft.name.trim() ? 'Serving size must be above 0 g.' : null} />
     </Modal>
   );
 }
@@ -150,7 +156,9 @@ export function LogFoodModal({ food, log, onClose, onSave, onDelete }) {
   };
 
   return (
-    <Modal title={log ? 'Edit log' : 'Log food'} onClose={onClose} onSubmit={save}>
+    <Modal title={log ? 'Edit log' : 'Log food'} onClose={onClose} onSubmit={save}
+      footer={({ formId }) => <Actions formId={formId} onClose={onClose} onDelete={log ? () => onDelete(log.id) : null} saveDisabled={quantity <= 0} saveLabel={log ? 'Save' : 'Log it'} />}
+    >
       <div className="card panel stack">
         <div className="split">
           <div style={{ minWidth: 0 }}>
@@ -195,7 +203,6 @@ export function LogFoodModal({ food, log, onClose, onSave, onDelete }) {
         </Field>
         <Field label="Date"><DateInput value={draft.date} onChange={(date) => set({ date })} max={dateKey()} /></Field>
       </div>
-      <Actions onClose={onClose} onDelete={log ? () => onDelete(log.id) : null} saveDisabled={quantity <= 0} saveLabel={log ? 'Save' : 'Log it'} />
     </Modal>
   );
 }
@@ -215,7 +222,9 @@ export function ExerciseModal({ exercise, onClose, onSave, onDelete }) {
   const invalid = !draft.name.trim() || !draft.primaryMuscles?.length;
 
   return (
-    <Modal title={exercise ? 'Edit exercise' : 'Add exercise'} onClose={onClose} large onSubmit={() => !invalid && onSave({ ...draft, name: draft.name.trim() })}>
+    <Modal title={exercise ? 'Edit exercise' : 'Add exercise'} onClose={onClose} large onSubmit={() => !invalid && onSave({ ...draft, name: draft.name.trim() })}
+      footer={({ formId }) => <Actions formId={formId} onClose={onClose} onDelete={exercise?.id && onDelete ? () => onDelete(exercise.id) : null} saveDisabled={invalid} hint={draft.name.trim() && !draft.primaryMuscles?.length ? 'Pick at least one primary muscle.' : exercise ? 'Changes apply to future sets; logged workouts keep their original muscle volume.' : null} />}
+    >
       <div className="form-grid">
         <Field label="Name"><input className="input" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Cable Fly" /></Field>
         <Field label="Folder">
@@ -249,20 +258,16 @@ export function ExerciseModal({ exercise, onClose, onSave, onDelete }) {
           </fieldset>
         ))}
       </div>
-      <Actions
-        onClose={onClose}
-        onDelete={exercise?.id && onDelete ? () => onDelete(exercise.id) : null}
-        saveDisabled={invalid}
-        hint={draft.name.trim() && !draft.primaryMuscles?.length ? 'Pick at least one primary muscle.' : exercise ? 'Changes apply to future sets; logged workouts keep their original muscle volume.' : null}
-      />
     </Modal>
   );
 }
 
-const toSetDraft = (set, units) => ({ exerciseId: String(set.exerciseId ?? ''), weight: text(set.weight ? toDisplayWeight(set.weight, units) : ''), reps: text(set.reps ?? ''), rpe: text(set.rpe ?? '') });
-const blankSet = (exerciseId) => ({ exerciseId: String(exerciseId ?? ''), weight: '', reps: '8', rpe: '' });
+// A timed set (from a live session: a 60 s plank) keeps `seconds` and edits it in place of reps.
+const toSetDraft = (set, units) => ({ exerciseId: String(set.exerciseId ?? ''), weight: text(set.weight ? toDisplayWeight(set.weight, units) : ''), reps: text(set.reps ?? ''), seconds: text(set.seconds ?? ''), rpe: text(set.rpe ?? '') });
+const blankSet = (exerciseId) => ({ exerciseId: String(exerciseId ?? ''), weight: '', reps: '8', seconds: '', rpe: '' });
 const comparable = (date, sets) => JSON.stringify({ date, sets: sets.map(({ done: _done, ...set }) => set) });
-const fmtSetShort = (set, units) => `${set.weight ? toDisplayWeight(set.weight, units) : 'BW'}×${set.reps}`;
+const fmtSetShort = (set, units) => `${set.weight ? toDisplayWeight(set.weight, units) : 'BW'}×${set.seconds ? `${set.seconds}s` : set.reps}`;
+const isTimedDraft = (set) => set.seconds !== '' && set.seconds != null;
 
 export function WorkoutModal({ workout, template, exercises, workouts = [], units, restSeconds = 90, onRestSecondsChange, onClose, onSave, onDelete }) {
   const source = workout ?? template;
@@ -280,7 +285,7 @@ export function WorkoutModal({ workout, template, exercises, workouts = [], unit
     updateSet(index, { done });
     if (done) timer.start(restSeconds);
   };
-  const validSets = sets.filter((set) => set.exerciseId && num(set.reps) > 0);
+  const validSets = sets.filter((set) => set.exerciseId && (isTimedDraft(set) ? num(set.seconds) > 0 : num(set.reps) > 0));
   const findExercise = (id) => exercises.find((exercise) => String(exercise.id) === String(id));
   const previousBest = bestE1rmByExercise(workouts, { excludeId: workout?.id });
 
@@ -296,7 +301,12 @@ export function WorkoutModal({ workout, template, exercises, workouts = [], unit
 
   const save = () => {
     if (!validSets.length) return;
-    onSave({ date, sets: validSets.map((set) => ({ exerciseId: set.exerciseId, reps: num(set.reps), weight: fromDisplayWeight(num(set.weight), units), rpe: set.rpe === '' ? null : num(set.rpe) })) });
+    onSave({ date, sets: validSets.map((set) => ({
+      exerciseId: set.exerciseId,
+      ...(isTimedDraft(set) ? { reps: 0, seconds: Math.round(num(set.seconds)) } : { reps: num(set.reps) }),
+      weight: fromDisplayWeight(num(set.weight), units),
+      rpe: set.rpe === '' ? null : num(set.rpe)
+    })) });
   };
 
   const close = () => onClose(dirty);
@@ -304,7 +314,9 @@ export function WorkoutModal({ workout, template, exercises, workouts = [], unit
   const doneCount = sets.filter((set) => set.done).length;
 
   return (
-    <Modal title={workout ? 'Edit workout' : template?.name ?? (template ? 'Repeat workout' : 'Log workout')} onClose={close} large onSubmit={save}>
+    <Modal title={workout ? 'Edit workout' : template?.name ?? (template ? 'Repeat workout' : 'Log workout')} onClose={close} large onSubmit={save}
+      footer={({ formId }) => <Actions formId={formId} onClose={close} onDelete={workout ? () => onDelete(workout.id) : null} deleteLabel="Delete workout" saveDisabled={!validSets.length} top={<RestTimerBar timer={timer} seconds={restSeconds} onSecondsChange={(value) => onRestSecondsChange?.(value)} />} hint={!validSets.length ? 'Add reps to at least one set to save.' : validSets.length < sets.length ? `${sets.length - validSets.length} set(s) without reps will be skipped.` : null} />}
+    >
       <div className="split" style={{ flexWrap: 'wrap' }}>
         <Field label="Date"><DateInput value={date} onChange={setDate} max={dateKey()} /></Field>
         {doneCount > 0 && <span className="muted">{doneCount} of {sets.length} sets done</span>}
@@ -341,7 +353,9 @@ export function WorkoutModal({ workout, template, exercises, workouts = [], unit
               </div>
               <div className="set-fields">
                 <label className="set-field"><span>{exercise?.equipment === 'bodyweight' ? `+${weightUnitLabel(units)}` : weightUnitLabel(units)}</span><NumberInput step="0.5" value={set.weight} onChange={(weight) => updateSet(index, { weight })} placeholder="0" /></label>
-                <label className="set-field"><span>reps</span><NumberInput step="1" value={set.reps} onChange={(reps) => updateSet(index, { reps })} inputMode="numeric" placeholder="0" /></label>
+                {isTimedDraft(set)
+                  ? <label className="set-field"><span>sec</span><NumberInput step="1" value={set.seconds} onChange={(seconds) => updateSet(index, { seconds })} inputMode="numeric" placeholder="0" /></label>
+                  : <label className="set-field"><span>reps</span><NumberInput step="1" value={set.reps} onChange={(reps) => updateSet(index, { reps })} inputMode="numeric" placeholder="0" /></label>}
                 <label className="set-field"><span>RPE</span><NumberInput step="0.5" max={10} value={set.rpe} onChange={(rpe) => updateSet(index, { rpe })} placeholder="–" /></label>
                 <div className="set-buttons">
                   <IconButton label={set.done ? `Mark set ${index + 1} not done` : `Mark set ${index + 1} done and start rest`} aria-pressed={Boolean(set.done)} className={`btn-icon done-toggle ${set.done ? 'active' : ''}`} onClick={() => toggleDone(index)}><Check size={17} /></IconButton>
@@ -354,14 +368,6 @@ export function WorkoutModal({ workout, template, exercises, workouts = [], unit
         })}
       </div>
       <button className="btn-secondary" type="button" onClick={addSet} style={{ justifySelf: 'start' }}><Plus size={18} /> Add set</button>
-      <Actions
-        onClose={close}
-        onDelete={workout ? () => onDelete(workout.id) : null}
-        deleteLabel="Delete workout"
-        saveDisabled={!validSets.length}
-        top={<RestTimerBar timer={timer} seconds={restSeconds} onSecondsChange={(value) => onRestSecondsChange?.(value)} />}
-        hint={!validSets.length ? 'Add reps to at least one set to save.' : validSets.length < sets.length ? `${sets.length - validSets.length} set(s) without reps will be skipped.` : null}
-      />
     </Modal>
   );
 }
@@ -415,7 +421,9 @@ export function GoalModal({ goal, exercises, units, latestBodyweight, onClose, o
   };
 
   return (
-    <Modal title={goal ? 'Edit goal' : 'Add goal'} onClose={onClose} onSubmit={save}>
+    <Modal title={goal ? 'Edit goal' : 'Add goal'} onClose={onClose} onSubmit={save}
+      footer={({ formId }) => <Actions formId={formId} onClose={onClose} saveDisabled={invalid} hint={draft.type === 'nutrition' && target > NUTRITION_WINDOW_DAYS ? `Maximum is ${NUTRITION_WINDOW_DAYS} days.` : null} />}
+    >
       <div className="form-grid">
         <Field label="Type">
           <select className="input" value={draft.type} onChange={(e) => set({ type: e.target.value, target: '' })}>
@@ -458,7 +466,6 @@ export function GoalModal({ goal, exercises, units, latestBodyweight, onClose, o
       </div>
       {draft.type === 'bodyweight' && <span className="muted">Progress is measured from your first bodyweight log towards the target.</span>}
       {draft.type === 'nutrition' && <span className="muted">Counts days in the last {NUTRITION_WINDOW_DAYS} where your {draft.metric} landed on your daily target from Profile.</span>}
-      <Actions onClose={onClose} saveDisabled={invalid} hint={draft.type === 'nutrition' && target > NUTRITION_WINDOW_DAYS ? `Maximum is ${NUTRITION_WINDOW_DAYS} days.` : null} />
     </Modal>
   );
 }
@@ -581,7 +588,20 @@ export function ProfileModal({ profile, onboarding = false, onClose, onSave }) {
   };
 
   return (
-    <Modal title={onboarding ? 'Set up Finesse Fit' : 'Profile'} onClose={onClose} onSubmit={save}>
+    <Modal
+      title={onboarding ? 'Set up Finesse Fit' : 'Profile'}
+      subtitle={onboarding ? 'Three numbers now; everything else can wait.' : null}
+      onClose={onClose}
+      onSubmit={save}
+      footer={({ formId }) => (
+        <>
+          {hint && <span className="full modal-hint" role="status">{hint}</span>}
+          <span className="spacer" />
+          <button className="btn-secondary" type="button" onClick={onClose}>{onboarding ? 'Skip for now' : 'Cancel'}</button>
+          <button className="btn-primary" type="submit" form={formId} disabled={invalid}><Save size={18} aria-hidden="true" /> {onboarding ? 'Get started' : 'Save'}</button>
+        </>
+      )}
+    >
       {onboarding && (
         <p className="secondary" style={{ margin: 0 }}>
           Add your body stats and body-composition targets. Finesse Fit will estimate daily calories and macros from those inputs.
@@ -697,11 +717,6 @@ export function ProfileModal({ profile, onboarding = false, onClose, onSave }) {
           </div>
         </details>
       )}
-      {hint && <span className="muted modal-hint" role="status">{hint}</span>}
-      <div className="row modal-actions modal-footer">
-        <button className="btn-secondary" type="button" onClick={onClose}>{onboarding ? 'Skip for now' : 'Cancel'}</button>
-        <button className="btn-primary" type="submit" disabled={invalid}><Save size={18} /> {onboarding ? 'Get started' : 'Save'}</button>
-      </div>
     </Modal>
   );
 }
@@ -712,12 +727,13 @@ export function BodyweightModal({ units, latest, onClose, onSave }) {
   const invalid = num(weight) <= 0;
   const save = () => !invalid && onSave({ date, weight: fromDisplayWeight(num(weight), units) });
   return (
-    <Modal title="Log bodyweight" size="sm" onClose={onClose} onSubmit={save}>
+    <Modal title="Log bodyweight" size="sm" onClose={onClose} onSubmit={save}
+      footer={({ formId }) => <Actions formId={formId} onClose={onClose} saveDisabled={invalid} />}
+    >
       <div className="form-grid">
         <Field label={`Weight (${weightUnitLabel(units)})`}><NumberInput step="0.1" value={weight} onChange={setWeight} /></Field>
         <Field label="Date"><DateInput value={date} onChange={setDate} max={dateKey()} /></Field>
       </div>
-      <Actions onClose={onClose} saveDisabled={invalid} />
     </Modal>
   );
 }
@@ -728,7 +744,9 @@ export function LogMealModal({ meal, onClose, onLog, onDelete }) {
   const totals = sumComputed(meal.items);
 
   return (
-    <Modal title={meal.name} onClose={onClose} onSubmit={() => onLog({ date, mealType })}>
+    <Modal title={meal.name} onClose={onClose} onSubmit={() => onLog({ date, mealType })}
+      footer={({ formId }) => <Actions formId={formId} onClose={onClose} onDelete={() => onDelete(meal.id)} deleteLabel="Delete meal" saveLabel="Log meal" />}
+    >
       <div className="card panel stack">
         <div className="split">
           <span className="muted">{meal.items.length} {meal.items.length === 1 ? 'item' : 'items'}</span>
@@ -759,7 +777,6 @@ export function LogMealModal({ meal, onClose, onLog, onDelete }) {
         <Field label="Date"><DateInput value={date} onChange={setDate} max={dateKey()} /></Field>
       </div>
       <span className="muted">Items still in your food library use their current nutrition.</span>
-      <Actions onClose={onClose} onDelete={() => onDelete(meal.id)} deleteLabel="Delete meal" saveLabel="Log meal" />
     </Modal>
   );
 }
@@ -786,7 +803,9 @@ export function QuickAddModal({ log, onClose, onSave, onDelete }) {
   };
 
   return (
-    <Modal title={log ? 'Edit quick add' : 'Quick add'} onClose={onClose} onSubmit={save}>
+    <Modal title={log ? 'Edit quick add' : 'Quick add'} onClose={onClose} onSubmit={save}
+      footer={({ formId }) => <Actions formId={formId} onClose={onClose} onDelete={log ? () => onDelete(log.id) : null} saveDisabled={calories <= 0 && macroCalories <= 0} saveLabel={log ? 'Save' : 'Log it'} />}
+    >
       <Field label="Description"><input className="input" value={draft.name} onChange={(e) => set({ name: e.target.value })} placeholder="Restaurant pasta" /></Field>
       <div className="macro-inputs">
         <Field label="Calories"><NumberInput value={draft.calories} onChange={(value) => set({ calories: value })} placeholder={macroCalories ? String(Math.round(macroCalories)) : '0'} /></Field>
@@ -805,7 +824,6 @@ export function QuickAddModal({ log, onClose, onSave, onDelete }) {
         </Field>
         <Field label="Date"><DateInput value={draft.date} onChange={(date) => set({ date })} max={dateKey()} /></Field>
       </div>
-      <Actions onClose={onClose} onDelete={log ? () => onDelete(log.id) : null} saveDisabled={calories <= 0 && macroCalories <= 0} saveLabel={log ? 'Save' : 'Log it'} />
     </Modal>
   );
 }
@@ -824,7 +842,19 @@ export function AiContextModal({ text, onClose }) {
   const share = () => shareText({ text: draft, title: 'Finesse Fit — today’s context' });
 
   return (
-    <Modal title="AI context" onClose={onClose} size="lg">
+    <Modal
+      title="AI context"
+      subtitle="Stays on this device until you paste it somewhere."
+      onClose={onClose}
+      size="lg"
+      footer={
+        <>
+          <span className="spacer" />
+          {canShareText() && <button className="btn-secondary" type="button" onClick={share}><Share2 size={16} aria-hidden="true" /> Share</button>}
+          <button className="btn-primary" type="button" onClick={copy}>{copied ? <Check size={18} aria-hidden="true" /> : <Copy size={18} aria-hidden="true" />} {copied ? 'Copied' : 'Copy'}</button>
+        </>
+      }
+    >
       <p className="muted" style={{ margin: 0 }}>
         Today’s nutrition, training and goals, written out as background for an AI chat. Paste this in first, edit anything below if you like, then ask your actual question.
       </p>
@@ -835,13 +865,6 @@ export function AiContextModal({ text, onClose }) {
         onChange={(e) => setDraft(e.target.value)}
         aria-label="AI context text"
       />
-      <div className="split modal-footer" style={{ gap: 8 }}>
-        <span className="muted" style={{ fontSize: '0.8rem' }}>Stays on this device until you paste it somewhere.</span>
-        <div className="row">
-          {canShareText() && <button className="btn-secondary" type="button" onClick={share}><Share2 size={16} /> Share</button>}
-          <button className="btn-primary" type="button" onClick={copy}>{copied ? <Check size={18} /> : <Copy size={18} />} {copied ? 'Copied' : 'Copy'}</button>
-        </div>
-      </div>
     </Modal>
   );
 }
