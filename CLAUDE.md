@@ -70,7 +70,8 @@ src/
 │   ├── appearance.js      #   the model, normalisation, and applying it to <html>
 │   └── useAppearance.js   #   the hook App.jsx calls once
 ├── data/
-│   └── exercises.js       # Seeded exercise library (name → primary/secondary muscles, equipment)
+│   ├── exercises.js       # Seeded exercise library (name → primary/secondary muscles, equipment)
+│   └── bodyFatReferences.js # Body-fat reference percentages + descriptions (men/women)
 ├── views/                 # One file per page/tab
 │   ├── Dashboard.jsx
 │   ├── LogFood.jsx
@@ -100,6 +101,8 @@ src/
 │   ├── useGeolocation.js  # watchPosition hook + one-off fix helpers
 │   ├── useWakeLock.js     # Keeps the screen on during a session
 │   ├── WeekReview.jsx     # Weekly summary stat grid (Today + Progress)
+│   ├── BodyFatReference.jsx # Text-only men/women body-fat reference rows for the Profile modal
+│   ├── PriorityRanking.jsx  # Drag/keyboard ranked list of training priorities
 │   ├── AppShell.jsx       # SHARED — sidebar + mobile tab bar + "More" sheet
 │   ├── AppearanceSettings.jsx # SHARED — the palette/finish/density panel
 │   ├── useRestTimer.js    # Timestamp-based rest timer hook (vibrate + beep on finish)
@@ -377,7 +380,8 @@ Open DevTools → Application → IndexedDB → FinesseFit. All tables are visib
 - **Don't mock the database in tests.** `fake-indexeddb` gives a real Dexie implementation — use it, not a hand-rolled mock of `db.js`.
 - **Don't fetch tesseract.js/OCR assets from a CDN.** They're self-hosted under `public/tesseract/` on purpose — a CDN default would send a label photo off-device, which breaks the whole point of the exception described above.
 - **Don't save a scanned label's values straight to the database.** Always route through `FoodModal`'s `prefill` — OCR is best-effort and must always get a human check first.
-- **Don't bring back fat-loss/muscle-gain sliders.** Daily targets are driven by `targetBodyweight`/`targetBodyFat` (direct outcome inputs, "Body composition targets" in the Profile modal) plus the `performance`/`health` training-priority sliders — `calculateNutritionTargets` derives fat-loss/muscle-gain *intensity* internally from the composition targets. `goalMix.fatLoss`/`goalMix.muscleGain` still exist purely as a fallback for profiles saved before this existed (see DEV_GUIDE.md's "Nutrition targets" section) — don't wire a new slider to them.
+- **Don't bring back goal sliders.** Daily targets come from Mifflin-St Jeor maintenance (height, weight, optional `sex`/`birthYear`, `trainingDays`), the outcome inputs `targetBodyweight` and optional `targetBodyFat`, and the ranked `priorities` list — `calculateNutritionTargets` derives fat-loss/muscle-gain *intensity* internally. `goalMix` (all four keys) is legacy: only `fatLoss`/`muscleGain` are read, and only for profiles saved before composition targets existed (see DEV_GUIDE.md's "Nutrition targets" section). Don't wire new UI to it.
+- **Don't default a blank target body fat.** `targetBodyFat: null` means "not sure" and must stay null through `normalizeBodyCompositionTargets`, `saveProfile` and the AI context — it has no effect on targets.
 - **Don't let the two repositories' shared files drift.** `src/theme/`,
   `src/components/ui.jsx`, `AppShell.jsx`, `AppearanceSettings.jsx`,
   `DESIGN_SYSTEM.md` and everything in `index.css` above the app-specific marker

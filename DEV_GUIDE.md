@@ -120,7 +120,7 @@ The Dexie database is named `FinesseFit`, schema version 5 (v2 added `meals`, v3
 
 | Table | Key | Indexed fields | Description |
 |---|---|---|---|
-| `profile` | `++id` | — | Singleton: units, bodyweight, composition targets, activity level, calorie + macro targets |
+| `profile` | `++id` | — | Singleton: units, body stats, sex/age, composition targets, training days + ranked priorities, calorie + macro targets |
 | `foods` | `++id` | `barcode`, `name` | Food library: scanned, searched, or custom |
 | `foodLogs` | `++id` | `date`, `mealType` | Individual eating occasions with frozen computed macros |
 | `dailyTotals` | `++id` | `&date` | Derived per-day calorie/macro aggregates (one row per date) |
@@ -144,12 +144,11 @@ The Dexie database is named `FinesseFit`, schema version 5 (v2 added `meals`, v3
   units: 'metric',              // 'metric' | 'imperial'
   bodyweight: 78,               // canonical kg
   targetBodyweight: 78,         // canonical kg
-  targetBodyFat: 20,            // percentage
-  activityLevel: 'moderate',
-  goalMix: {
-    performance: 45,
-    health: 50,
-  },
+  targetBodyFat: null,          // percentage, optional — null when the user leaves it blank
+  sex: 'male',                  // 'male' | 'female' | null (optional)
+  birthYear: 1996,              // optional; the Profile modal asks for age and stores the birth year so it doesn't go stale
+  trainingDays: '4-5',          // '0-1' | '2-3' | '4-5' | '6+' — only stored once the Profile modal is saved
+  priorities: ['size', 'strength', 'health', 'endurance'], // ranked, most important first
   targets: {
     calories: 2600,
     protein: 180,               // grams
@@ -162,16 +161,21 @@ The Dexie database is named `FinesseFit`, schema version 5 (v2 added `meals`, v3
 
 ### Nutrition targets: body composition + training priorities
 
-`calculateNutritionTargets()` (`utils.js`) is what turns the Profile modal's inputs into daily calories/protein/carbs/fat. Two inputs feed it:
+`calculateNutritionTargets(profile, today)` (`utils.js`) turns the Profile modal's inputs into daily calories/protein/carbs/fat:
 
-- **Body composition targets** — `targetBodyweight` (kg) and `targetBodyFat` (%), set directly in the Profile modal's "Body composition targets" card. These describe the *outcome*: `weightDelta = targetBodyweight - bodyweight` sets direction and pace (a deficit when the target is below current weight, a surplus when above, scaled by how far off — `weightIntensity`), and `targetBodyFat` vs `DEFAULT_TARGET_BODY_FAT` (20%) nudges the same calculation towards more/less aggressive recomposition (`bodyFatBias`). Together they produce internal `fatLoss`/`muscleGain` intensities (0–1) — these are derived, not user-set; there's no fat-loss or muscle-gain slider in the UI.
-- **Training priorities** — `goalMix.performance` and `goalMix.health` (0–100 each, the only two sliders left in the Profile modal), affecting training-day calorie need and macro split independently of the composition goal.
+1. **Maintenance** — `estimateMaintenanceCalories()`: Mifflin-St Jeor BMR (`10×kg + 6.25×cm − 5×age + 5` for men, `−161` for women, the midpoint `−78` when sex isn't set; age defaults to 30 when `birthYear` isn't set) × the activity multiplier for `trainingDays` (`TRAINING_DAYS`: 1.2 / 1.375 / 1.55 / 1.725).
+2. **Goal direction** — `targetBodyweight` vs `bodyweight` sets a deficit or surplus scaled by how far off (`weightIntensity`, full strength at a 15% change). `targetBodyFat` is **optional**: when set it's compared with `TYPICAL_BODY_FAT` for the user's sex (20% men, 28% women, 24% unset) and nudges the same `fatLoss`/`muscleGain` intensities (`bodyFatBias`); when blank it has no effect. There's no current body-fat reading, so the typical norm is the reference — that's why it's sex-aware. Calories get `muscleGain × 12%` − `fatLoss × 20%`, floored at 1,500 (men) / 1,200 (women) / 1,350 (unset).
+3. **Ranked priorities** — `priorities` is an ordered list of `TRAINING_PRIORITIES` ids; rank weights are 0.4 / 0.3 / 0.2 / 0.1. `health` slows the pace of a cut or bulk (up to 20% gentler) and raises dietary fat; `size` and `strength` raise protein (capped at 2.4 g/kg); `endurance` is the only priority that adds calories (0–3% extra fuel), so a "maintain" goal lands on maintenance. Protein and fat scale with the lighter of current and target weight, so a big cut doesn't set protein from weight being lost.
 
-`normalizeBodyCompositionTargets(profile)` clamps `targetBodyweight` (≥35kg) and `targetBodyFat` (3–60%), defaulting a missing `targetBodyweight` to the current `bodyweight` (i.e. "no change" unless the user sets one) and a missing `targetBodyFat` to `DEFAULT_TARGET_BODY_FAT`.
+The Profile modal shows the estimated maintenance and goal direction under the calculated targets so the effect of each input is visible. The body-fat field has a "See body-fat examples" panel (`components/BodyFatReference.jsx`, data in `data/bodyFatReferences.js`): plain-language rows (a percentage, a label, a short description), tapping one fills the field. It's deliberately text-only, not illustrated — a body-fat silhouette chart is exactly the kind of thing every fitness site has commissioned its own copyrighted version of, and no freely-reusable image or open-source component for it turned up (checked stock sites and GitHub); an in-house drawn version was tried and dropped for not reading clearly at this size. If you're tempted to add an illustration here, don't pull one from a search result — it's someone else's copyrighted asset. The ranking UI is `components/PriorityRanking.jsx` (pointer drag on the grip, or arrow/Home/End keys).
 
-**Legacy fallback:** profiles saved before composition targets existed have neither field. `calculateNutritionTargets` checks `hasCompositionTargets = profile.targetBodyweight != null || profile.targetBodyFat != null` — false only for these old profiles — and falls back to reading `fatLoss`/`muscleGain` straight off `profile.goalMix` (still present in `DEFAULT_GOAL_MIX` for exactly this reason, even though nothing in the UI writes to those two keys anymore). `db.js`'s `getProfile()`/`saveProfile()` apply the same `hasCompositionTargets` check to decide whether to trust a profile's stored `targets` or recompute them, so an old profile's calorie target doesn't silently jump the moment `normalizeBodyCompositionTargets` fills in defaults for display.
+`normalizeBodyCompositionTargets(profile)` clamps `targetBodyweight` (≥35kg, defaulting to current `bodyweight`) and `targetBodyFat` (3–60%, left `null` when blank). `normalizePriorities()` / `normalizeTrainingDays()` fill in defaults for profiles that never saved them — but `buildAiContext` only states fields the user actually set.
 
-If you touch this function, `src/__tests__/utils.test.js` has cases for both the composition-target path and the legacy `goalMix`-only fallback — keep both passing.
+**Stored targets are trusted.** `getProfile()`/`saveProfile()` keep a profile's saved `targets` whenever it has composition targets, so formula changes never silently move someone's calories — they're recalculated when the user changes an input in the Profile modal (or taps "Use calculated targets").
+
+**Legacy fallback:** profiles saved before composition targets existed have neither `targetBodyweight` nor `targetBodyFat`. `calculateNutritionTargets` checks `hasCompositionTargets` and, for those, reads `fatLoss`/`muscleGain` straight off `profile.goalMix` (`DEFAULT_GOAL_MIX` is kept only for this). `goalMix.performance`/`goalMix.health` are no longer read anywhere — the ranked priorities replaced them.
+
+If you touch this function, `src/__tests__/utils.test.js` covers the maintenance formula, sex-aware body-fat targets, blank body fat, priority effects, the calorie floor and the legacy `goalMix` fallback — keep them passing.
 
 ### Food shape
 

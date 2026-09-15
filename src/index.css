@@ -1447,6 +1447,24 @@ details > summary::-webkit-details-marker { color: var(--text-muted); }
 .online-search { display: grid; gap: var(--gap-sm); padding-top: 13px; border-top: 1px solid var(--line); }
 .online-search > .btn-secondary { justify-self: start; }
 
+/* ── Profile: body composition targets ───────────────────────────────
+   Training priorities are a drag/keyboard-ranked list (its own thing, like
+   .set-row or .rest-timer). Body-fat reference rows reuse the shared
+   .list-row/.list-main/.selected pattern — just a leading percentage and an
+   optional checkmark bolted on. */
+.priority-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--gap-sm); }
+.priority-row { display: flex; align-items: center; gap: 12px; padding: 8px 6px 8px 10px; border-radius: var(--radius-md); background: var(--card-bg); border: 1px solid var(--line); transition: box-shadow var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease); }
+.priority-row.dragging { border-color: var(--accent-line); box-shadow: var(--shadow); position: relative; z-index: 1; }
+.priority-rank { flex: none; width: 26px; height: 26px; display: grid; place-items: center; border-radius: var(--radius-full); background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+.priority-row:first-child .priority-rank { background: var(--accent); color: var(--on-accent); }
+.priority-text { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.priority-text .muted { font-size: 0.82rem; }
+.priority-handle { cursor: grab; touch-action: none; }
+.priority-row.dragging .priority-handle { cursor: grabbing; }
+.bodyfat-value { flex: none; width: 42px; font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.bodyfat-check { flex: none; color: var(--accent); }
+.form-note { font-size: 0.86rem; line-height: 1.45; }
+
 /* ── Muscle map ────────────────────────────────────────────────────────
    The heat ramp is `--heat-0…3`, derived from the palette, so the map is
    readable in every theme without a per-palette rule of its own. */
