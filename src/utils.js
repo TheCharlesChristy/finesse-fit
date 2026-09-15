@@ -12,8 +12,32 @@ export const EXTRA_NUTRIENTS = [
 ];
 const NUTRIENT_PLACES = { calories: 0, salt: 2 };
 export const EMPTY_TOTALS = Object.fromEntries(NUTRIENT_KEYS.map((key) => [key, 0]));
+// Only read for profiles saved before body-composition targets existed.
 export const DEFAULT_GOAL_MIX = { fatLoss: 45, muscleGain: 55, performance: 45, health: 50 };
-export const DEFAULT_TARGET_BODY_FAT = 20;
+// No current body-fat reading is stored, so a body-fat target is judged against
+// what's typical for the user's sex (the midpoint when sex isn't set).
+export const TYPICAL_BODY_FAT = { male: 20, female: 28 };
+const TYPICAL_BODY_FAT_UNSET = 24;
+const DEFAULT_AGE = 30;
+
+// Ranked by the user, most important first. RANK_WEIGHTS gives the top pick the most say.
+export const TRAINING_PRIORITIES = [
+  { id: 'size', label: 'Muscle size', effect: 'The most protein, to build muscle' },
+  { id: 'strength', label: 'Strength', effect: 'More protein for heavy training' },
+  { id: 'health', label: 'General health', effect: 'More healthy fats, a gentler pace' },
+  { id: 'endurance', label: 'Endurance', effect: 'Extra calories and carbs for fuel' }
+];
+export const DEFAULT_PRIORITIES = TRAINING_PRIORITIES.map((priority) => priority.id);
+const RANK_WEIGHTS = [0.4, 0.3, 0.2, 0.1];
+
+// Training days set the Mifflin-St Jeor activity multiplier.
+export const TRAINING_DAYS = [
+  { id: '0-1', label: '0–1', activity: 1.2 },
+  { id: '2-3', label: '2–3', activity: 1.375 },
+  { id: '4-5', label: '4–5', activity: 1.55 },
+  { id: '6+', label: '6+', activity: 1.725 }
+];
+export const DEFAULT_TRAINING_DAYS = '2-3';
 
 const number = (value, fallback = 0) => {
   const n = Number(value);
@@ -189,46 +213,91 @@ export function normalizeGoalMix(goalMix = {}) {
   };
 }
 
+// Target body fat is optional: blank (null/'') stays null rather than being defaulted.
 export function normalizeBodyCompositionTargets(profile = {}) {
   const bodyweight = Math.max(35, number(profile.bodyweight, 78));
+  const bodyFat = profile.targetBodyFat === '' || profile.targetBodyFat == null ? NaN : Number(profile.targetBodyFat);
   return {
     targetBodyweight: Math.max(35, number(profile.targetBodyweight, bodyweight)),
-    targetBodyFat: Math.max(3, Math.min(60, number(profile.targetBodyFat, DEFAULT_TARGET_BODY_FAT)))
+    targetBodyFat: Number.isFinite(bodyFat) ? Math.max(3, Math.min(60, bodyFat)) : null
   };
 }
 
-export function calculateNutritionTargets(profile = {}) {
+// Keeps known ids in the user's order, drops duplicates/unknowns and appends any missing priority.
+export function normalizePriorities(priorities) {
+  const ranked = [...new Set((Array.isArray(priorities) ? priorities : []).filter((id) => DEFAULT_PRIORITIES.includes(id)))];
+  return [...ranked, ...DEFAULT_PRIORITIES.filter((id) => !ranked.includes(id))];
+}
+
+export function normalizeTrainingDays(id) {
+  return TRAINING_DAYS.some((option) => option.id === id) ? id : DEFAULT_TRAINING_DAYS;
+}
+
+export const priorityLabel = (id) => TRAINING_PRIORITIES.find((priority) => priority.id === id)?.label ?? id;
+export const trainingDaysLabel = (id) => TRAINING_DAYS.find((option) => option.id === id)?.label ?? id;
+
+export function ageFromBirthYear(birthYear, today = new Date()) {
+  if (birthYear == null || birthYear === '' || !Number.isFinite(Number(birthYear))) return null;
+  const year = (typeof today === 'string' ? parseISO(today) : today).getFullYear();
+  return year - Number(birthYear);
+}
+
+// Mifflin-St Jeor BMR × the training-days activity multiplier. Missing sex uses
+// the midpoint of the male/female constants; missing age uses DEFAULT_AGE.
+export function estimateMaintenanceCalories(profile = {}, today = new Date()) {
   const weight = Math.max(35, number(profile.bodyweight, 78));
   const heightCm = Math.max(120, number(profile.height, 178));
-  const heightM = heightCm / 100;
-  const bmi = weight / (heightM * heightM);
-  const mix = normalizeGoalMix(profile.goalMix);
-  // New profiles describe the desired outcome directly. The target bodyweight
-  // sets the direction and pace, while target body fat nudges recomposition
-  // goals towards a deficit or surplus. Keep the old blend as a fallback for
-  // profiles saved before composition targets existed.
+  const age = Math.max(13, Math.min(100, ageFromBirthYear(profile.birthYear, today) ?? DEFAULT_AGE));
+  const sexConstant = profile.sex === 'male' ? 5 : profile.sex === 'female' ? -161 : -78;
+  const bmr = 10 * weight + 6.25 * heightCm - 5 * age + sexConstant;
+  const activity = TRAINING_DAYS.find((option) => option.id === normalizeTrainingDays(profile.trainingDays)).activity;
+  return Math.round(bmr * activity);
+}
+
+// { direction: 'lose' | 'gain' | 'maintain', kg } — the absolute change the target bodyweight asks for.
+export function compositionGoal(profile = {}) {
+  const weight = Math.max(35, number(profile.bodyweight, 78));
+  const delta = round(normalizeBodyCompositionTargets(profile).targetBodyweight - weight, 1);
+  if (Math.abs(delta) < 0.5) return { direction: 'maintain', kg: 0 };
+  return { direction: delta < 0 ? 'lose' : 'gain', kg: Math.abs(delta) };
+}
+
+export function calculateNutritionTargets(profile = {}, today = new Date()) {
+  const weight = Math.max(35, number(profile.bodyweight, 78));
+  // The target bodyweight sets direction and pace; an optional body-fat target
+  // nudges towards a deficit or surplus. Profiles saved before composition
+  // targets existed fall back to the old fatLoss/muscleGain blend.
   const hasCompositionTargets = profile.targetBodyweight != null || profile.targetBodyFat != null;
   const composition = normalizeBodyCompositionTargets({ ...profile, bodyweight: weight });
   const weightDelta = composition.targetBodyweight - weight;
   const weightIntensity = Math.min(1, Math.abs(weightDelta) / Math.max(weight * 0.15, 1));
-  const bodyFatBias = Math.max(-1, Math.min(1, (DEFAULT_TARGET_BODY_FAT - composition.targetBodyFat) / 10));
+  const typicalBodyFat = TYPICAL_BODY_FAT[profile.sex] ?? TYPICAL_BODY_FAT_UNSET;
+  const bodyFatBias = composition.targetBodyFat == null ? 0 : Math.max(-1, Math.min(1, (typicalBodyFat - composition.targetBodyFat) / 10));
+  const mix = normalizeGoalMix(profile.goalMix);
   const fatLoss = hasCompositionTargets
     ? Math.max(0, Math.min(1, (weightDelta < 0 ? weightIntensity : 0) + Math.max(0, bodyFatBias) * 0.35))
     : mix.fatLoss / 100;
   const muscleGain = hasCompositionTargets
     ? Math.max(0, Math.min(1, (weightDelta > 0 ? weightIntensity : 0) + Math.max(0, -bodyFatBias) * 0.35))
     : mix.muscleGain / 100;
-  const performance = mix.performance / 100;
-  const health = mix.health / 100;
-  const trainingFactor = 29 + muscleGain * 4 + performance * 6 + health * 2;
-  const baseCalories = weight * trainingFactor;
-  const calorieShift = muscleGain * 0.14 + performance * 0.08 - fatLoss * 0.2 + health * 0.02;
-  const bmiAdjustment = bmi > 30 ? -0.05 * fatLoss : bmi < 20 ? 0.05 * muscleGain : 0;
-  const calories = Math.round((baseCalories * (1 + calorieShift + bmiAdjustment)) / 25) * 25;
-  const proteinFactor = 1.65 + fatLoss * 0.35 + muscleGain * 0.35;
-  const fatFactor = 0.7 + health * 0.2 + muscleGain * 0.1;
-  const protein = Math.round(weight * proteinFactor);
-  const fat = Math.round(Math.max(weight * fatFactor, (calories * 0.2) / 9));
+
+  const ranked = normalizePriorities(profile.priorities);
+  const [size, strength, health, endurance] = DEFAULT_PRIORITIES.map((id) => RANK_WEIGHTS[ranked.indexOf(id)]);
+
+  // Health slows the pace of a cut or bulk. Endurance is the only priority that
+  // adds calories (0–3% extra fuel above last place), so choosing to maintain
+  // weight lands on maintenance; size and strength shape protein instead.
+  const goalShift = (muscleGain * 0.12 - fatLoss * 0.2) * (1 - health * 0.5);
+  const calorieShift = goalShift + (endurance - RANK_WEIGHTS.at(-1)) * 0.1;
+  const floor = profile.sex === 'female' ? 1200 : profile.sex === 'male' ? 1500 : 1350;
+  const calories = Math.max(floor, Math.round((estimateMaintenanceCalories(profile, today) * (1 + calorieShift)) / 25) * 25);
+
+  // Protein and fat scale with the lighter of current and target weight, so a
+  // large cut doesn't set protein from weight the user is trying to lose.
+  const leanBasis = Math.min(weight, composition.targetBodyweight);
+  const proteinFactor = Math.min(2.4, 1.6 + fatLoss * 0.3 + muscleGain * 0.2 + size * 0.5 + strength * 0.4);
+  const protein = Math.round(leanBasis * proteinFactor);
+  const fat = Math.round(Math.max(leanBasis * (0.7 + health * 0.5), (calories * (0.2 + health * 0.25)) / 9));
   const carbs = Math.max(80, Math.round((calories - protein * 4 - fat * 9) / 4));
   return { calories, protein, carbs, fat };
 }
@@ -653,10 +722,28 @@ export function buildAiContext({ today, profile, totals = {}, meals = [], todayW
   lines.push(`Here's my fitness and nutrition data for ${fmtDate(today, 'EEEE d MMMM yyyy')}. Please use this as background context for our conversation — I'll ask my actual question after this.`);
   lines.push('');
 
+  // Only state what the user actually set — unset fields are left out, not defaulted.
+  const age = ageFromBirthYear(profile.birthYear, today);
+  const stats = [
+    profile.sex && `Sex: ${profile.sex}`,
+    age != null && `Age: ${age}`,
+    profile.height && `Height: ${fmtHeight(profile.height, profile.heightUnit ?? units)}`
+  ].filter(Boolean);
+  const about = [
+    stats.length && stats.join(' · '),
+    profile.trainingDays && `Training: ${trainingDaysLabel(profile.trainingDays)} days per week`,
+    Array.isArray(profile.priorities) && `Training priorities, most important first: ${normalizePriorities(profile.priorities).map((id, index) => `${index + 1}. ${priorityLabel(id)}`).join(', ')}`
+  ].filter(Boolean);
+  if (about.length) lines.push('ABOUT ME', ...about, '');
+
   lines.push('MY TARGETS');
   lines.push(`Daily calories: ${fmtCalories(targets.calories)}`);
   lines.push(`Protein ${fmtMacro(targets.protein)} · Carbs ${fmtMacro(targets.carbs)} · Fat ${fmtMacro(targets.fat)}`);
-  lines.push(`Bodyweight: ${fmtWeight(profile.bodyweight, units)}${profile.targetBodyweight != null ? ` → target ${fmtWeight(profile.targetBodyweight, units)}` : ''}${profile.targetBodyFat != null ? ` · target body fat ${round(profile.targetBodyFat, 1)}%` : ''}`);
+  const goal = compositionGoal(profile);
+  const goalText = profile.targetBodyweight == null ? ''
+    : ` → target ${fmtWeight(profile.targetBodyweight, units)} (${goal.direction === 'maintain' ? 'maintaining' : `aiming to ${goal.direction} ${fmtWeight(goal.kg, units)}`})`;
+  const bodyFatText = profile.targetBodyFat != null ? `target body fat ${round(profile.targetBodyFat, 1)}%` : 'no body-fat target set';
+  lines.push(`Bodyweight: ${fmtWeight(profile.bodyweight, units)}${goalText} · ${bodyFatText}`);
   lines.push('');
 
   lines.push("TODAY'S NUTRITION SO FAR");

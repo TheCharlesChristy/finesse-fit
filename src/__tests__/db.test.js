@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   addBodyweightLog, addExercise, addFood, addFoodLog, addGoal, addProgressPhoto, addQuickLog, addWorkout,
   clearAllData, copyFoodLogs, db, deleteFoodLog, deleteWorkout, exportData, getCustomExercises, getDailyTotals,
-  getFoodLogs, getGoals, getMuscleVolume, getProfile, getProgressPhotos, getWorkouts, importData, restoreFoodLog,
-  restoreRow, restoreWorkout, updateFood, updateFoodLog, updateWorkout, validateImport
+  DEFAULT_PROFILE, getFoodLogs, getGoals, getMuscleVolume, getProfile, getProgressPhotos, getWorkouts, importData, restoreFoodLog,
+  restoreRow, restoreWorkout, saveProfile, updateFood, updateFoodLog, updateWorkout, validateImport
 } from '../db.js';
 import { calculateNutritionTargets, dateKey, weekKey } from '../utils.js';
 
@@ -26,8 +26,17 @@ describe('profile body-composition targets', () => {
     const profile = await getProfile();
 
     expect(profile.targetBodyweight).toBe(82);
-    expect(profile.targetBodyFat).toBe(20);
+    expect(profile.targetBodyFat).toBeNull();
     expect(profile.targets).toEqual(calculateNutritionTargets(profile));
+  });
+
+  it('keeps a blank body-fat target blank instead of filling in a default', async () => {
+    await saveProfile({ ...DEFAULT_PROFILE, bodyweight: 70, targetBodyweight: 65, targetBodyFat: null, sex: 'female', birthYear: 1994, priorities: ['health'], trainingDays: '4-5' });
+
+    const profile = await getProfile();
+
+    expect(profile.targetBodyFat).toBeNull();
+    expect(profile).toMatchObject({ sex: 'female', birthYear: 1994, priorities: ['health'], trainingDays: '4-5' });
   });
 });
 

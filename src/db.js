@@ -1,6 +1,6 @@
 import Dexie from 'dexie';
 import { SEEDED_EXERCISES } from './data/exercise-library/index.js';
-import { DEFAULT_GOAL_MIX, DEFAULT_TARGET_BODY_FAT, addTotals, attributeVolume, calculateNutritionTargets, dateKey, normalizeBodyCompositionTargets, round, scaleNutrition, setLoad, setVolume, weekKey } from './utils.js';
+import { addTotals, attributeVolume, calculateNutritionTargets, dateKey, normalizeBodyCompositionTargets, round, scaleNutrition, setLoad, setVolume, weekKey } from './utils.js';
 
 export const db = new Dexie('FinesseFit');
 
@@ -70,9 +70,13 @@ export const DEFAULT_PROFILE = {
   height: 178,
   bodyweight: 78,
   targetBodyweight: 78,
-  targetBodyFat: DEFAULT_TARGET_BODY_FAT,
-  goalMix: DEFAULT_GOAL_MIX,
-  targets: calculateNutritionTargets({ height: 178, bodyweight: 78, targetBodyweight: 78, targetBodyFat: DEFAULT_TARGET_BODY_FAT, goalMix: DEFAULT_GOAL_MIX }),
+  // Optional — null means the user hasn't picked a body-fat target.
+  targetBodyFat: null,
+  // sex/birthYear are optional too; priorities/trainingDays are only stored
+  // once the user saves the Profile modal (see calculateNutritionTargets).
+  sex: null,
+  birthYear: null,
+  targets: calculateNutritionTargets({ height: 178, bodyweight: 78, targetBodyweight: 78 }),
   themeMode: 'dark',
   palette: 'mint'
 };

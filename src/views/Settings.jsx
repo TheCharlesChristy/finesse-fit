@@ -6,7 +6,7 @@ import { APP_COMMIT, APP_VERSION, formatBuiltAt } from '../buildInfo.js';
 import { DEFAULT_PALETTE, PALETTES, paletteExists } from '../data/palettes.js';
 import { isUpdatePending, updateApp } from '../pwa.js';
 import { formatBytes, STORAGE_BEST_EFFORT, STORAGE_PERSISTED, STORAGE_UNSUPPORTED } from '../storage.js';
-import { DEFAULT_TARGET_BODY_FAT, fmtCalories, fmtDate, fmtHeight, fmtMacro, fmtWeight } from '../utils.js';
+import { fmtCalories, fmtDate, fmtHeight, fmtMacro, fmtWeight, normalizePriorities, priorityLabel, trainingDaysLabel } from '../utils.js';
 
 // What updateApp() found, in the user's terms. Anything unrecognised falls
 // back to 'error' — silence is the one outcome a manual check mustn't have.
@@ -57,7 +57,8 @@ export default function Settings({ profile, resolvedTheme = 'dark', storageState
           <CardTitle icon={UserRound}>Profile</CardTitle>
           <div className="list-row stack" style={{ gap: 4 }}>
             <strong>{fmtHeight(profile.height, profile.heightUnit ?? profile.units)} · {fmtWeight(profile.bodyweight, profile.units)}</strong>
-            <div className="muted">Target {fmtWeight(profile.targetBodyweight ?? profile.bodyweight, profile.units)} · {profile.targetBodyFat ?? DEFAULT_TARGET_BODY_FAT}% body fat</div>
+            <div className="muted">Target {fmtWeight(profile.targetBodyweight ?? profile.bodyweight, profile.units)}{profile.targetBodyFat != null ? ` · ${profile.targetBodyFat}% body fat` : ''}</div>
+            {profile.trainingDays && <div className="muted">{trainingDaysLabel(profile.trainingDays)} training days a week · {priorityLabel(normalizePriorities(profile.priorities)[0])} first</div>}
             <div className="muted">{fmtCalories(profile.targets.calories)} · P {fmtMacro(profile.targets.protein)} · C {fmtMacro(profile.targets.carbs)} · F {fmtMacro(profile.targets.fat)}</div>
           </div>
           <button className="btn-primary" type="button" onClick={onProfile}>Edit profile & body targets</button>

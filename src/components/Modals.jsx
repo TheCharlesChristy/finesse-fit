@@ -1,25 +1,23 @@
 import { useState } from 'react';
-import { Check, Copy, History, Plus, RotateCcw, Save, Share2, Trash2, TrendingUp, Trophy } from 'lucide-react';
+import { Check, Copy, History, PersonStanding, Plus, RotateCcw, Save, Share2, Trash2, TrendingUp, Trophy } from 'lucide-react';
 import { EXERCISE_CATEGORIES, EXERCISE_EQUIPMENT, MUSCLES } from '../data/exercise-library/index.js';
 import { canShareText, copyText, SHARE_COPIED, shareText } from '../share.js';
 import {
-  applyProgression, bestE1rmByExercise, calculateNutritionTargets, dateKey, DEFAULT_GOAL_MIX, DEFAULT_TARGET_BODY_FAT, estimateOneRepMax, EXTRA_NUTRIENTS,
-  fmtCalories, fmtDate, fmtMacro, fromDisplayHeight, fromDisplayWeight, fromFeetInches, lastSessionFor, mealForTime, mealLabel,
-  muscleLabel, normalizeBodyCompositionTargets, normalizeGoalMix, NUTRIENT_KEYS, NUTRITION_WINDOW_DAYS, round, scaleNutrition, servingLabel, suggestProgression,
-  sumComputed, toDisplayHeight, toDisplayWeight, toFeetInches
+  ageFromBirthYear, applyProgression, bestE1rmByExercise, calculateNutritionTargets, compositionGoal, dateKey, estimateMaintenanceCalories, estimateOneRepMax, EXTRA_NUTRIENTS,
+  fmtCalories, fmtDate, fmtMacro, fmtWeight, fromDisplayHeight, fromDisplayWeight, fromFeetInches, lastSessionFor, mealForTime, mealLabel,
+  muscleLabel, normalizeBodyCompositionTargets, normalizePriorities, normalizeTrainingDays, NUTRIENT_KEYS, NUTRITION_WINDOW_DAYS, round, scaleNutrition, servingLabel, suggestProgression,
+  sumComputed, toDisplayHeight, toDisplayWeight, toFeetInches, TRAINING_DAYS
 } from '../utils.js';
+import BodyFatReference from './BodyFatReference.jsx';
 import DateInput from './DateInput.jsx';
 import ExercisePicker from './ExercisePicker.jsx';
+import PriorityRanking from './PriorityRanking.jsx';
 import RestTimerBar from './RestTimer.jsx';
 import { useRestTimer } from './useRestTimer.js';
-import { Field, IconButton, Modal } from './ui.jsx';
+import { Field, IconButton, Modal, Segmented } from './ui.jsx';
 
 const MEALS = ['breakfast', 'lunch', 'dinner', 'snack'];
 const EQUIPMENT = EXERCISE_EQUIPMENT;
-const PROFILE_GOALS = [
-  { key: 'performance', label: 'Performance' },
-  { key: 'health', label: 'General health' }
-];
 
 // Inputs keep the raw string the user typed (so "", "0." and "1.5" all edit
 // naturally); values are only coerced to numbers when saving.
@@ -465,31 +463,46 @@ export function GoalModal({ goal, exercises, units, latestBodyweight, onClose, o
   );
 }
 
+// Blank optional inputs (target body fat, age) mean "not set", not zero.
+const optionalNum = (value) => (String(value).trim() === '' ? null : num(value));
+const birthYearForAge = (age) => (age == null ? null : new Date().getFullYear() - Math.round(age));
+
 export function ProfileModal({ profile, onboarding = false, onClose, onSave }) {
   const startingHeightUnit = profile.heightUnit ?? 'imperial';
   const startingWeightUnit = profile.weightUnit ?? profile.units ?? 'metric';
   const startingHeight = toFeetInches(profile.height);
   const startingComposition = normalizeBodyCompositionTargets(profile);
-  const [draft, setDraft] = useState({ ...profile, goalMix: normalizeGoalMix(profile.goalMix ?? DEFAULT_GOAL_MIX) });
+  const [draft, setDraft] = useState({
+    ...profile,
+    sex: profile.sex ?? null,
+    priorities: normalizePriorities(profile.priorities),
+    trainingDays: normalizeTrainingDays(profile.trainingDays)
+  });
   const [heightUnit, setHeightUnit] = useState(startingHeightUnit);
   const [weightUnit, setWeightUnit] = useState(startingWeightUnit);
   const [heightCmText, setHeightCmText] = useState(String(toDisplayHeight(profile.height, 'metric')));
   const [heightFeetText, setHeightFeetText] = useState(String(startingHeight.feet));
   const [heightInchesText, setHeightInchesText] = useState(String(Math.round(startingHeight.inches)));
   const [weightText, setWeightText] = useState(String(toDisplayWeight(profile.bodyweight, startingWeightUnit)));
+  const [ageText, setAgeText] = useState(text(ageFromBirthYear(profile.birthYear)));
   const [targetWeightText, setTargetWeightText] = useState(String(toDisplayWeight(startingComposition.targetBodyweight, startingWeightUnit)));
-  const [targetBodyFatText, setTargetBodyFatText] = useState(text(startingComposition.targetBodyFat ?? DEFAULT_TARGET_BODY_FAT));
+  const [targetBodyFatText, setTargetBodyFatText] = useState(text(startingComposition.targetBodyFat));
   const [targetWeightEdited, setTargetWeightEdited] = useState(false);
+  const [showBodyFatExamples, setShowBodyFatExamples] = useState(false);
+  const [exampleSex, setExampleSex] = useState(profile.sex ?? 'male');
   const [targetText, setTargetText] = useState(() => Object.fromEntries(Object.entries(profile.targets ?? {}).map(([key, value]) => [key, text(value)])));
   const targetBodyweight = fromDisplayWeight(num(targetWeightText), weightUnit);
-  const targetBodyFat = num(targetBodyFatText);
-  const calculatedTargets = calculateNutritionTargets({ ...draft, targetBodyweight, targetBodyFat });
-  const setGuided = (patch, nextComposition = { targetBodyweight, targetBodyFat }) => {
-    const next = { ...draft, ...patch };
-    setDraft(next);
+  const targetBodyFat = optionalNum(targetBodyFatText);
+  const age = optionalNum(ageText);
+  const inputs = { ...draft, targetBodyweight, targetBodyFat, birthYear: birthYearForAge(age) };
+  const calculatedTargets = calculateNutritionTargets(inputs);
+  const maintenance = estimateMaintenanceCalories(inputs);
+  const goal = compositionGoal(inputs);
+  const setGuided = (patch) => {
+    setDraft({ ...draft, ...patch });
     // Changing stats, composition targets or training priorities recalculates
     // daily targets, replacing any manual macro override.
-    setTargetText(Object.fromEntries(Object.entries(calculateNutritionTargets({ ...next, ...nextComposition })).map(([key, value]) => [key, text(value)])));
+    setTargetText(Object.fromEntries(Object.entries(calculateNutritionTargets({ ...inputs, ...patch })).map(([key, value]) => [key, text(value)])));
   };
   const targets = Object.fromEntries(['calories', 'protein', 'carbs', 'fat'].map((key) => [key, num(targetText[key])]));
   const overridden = ['calories', 'protein', 'carbs', 'fat'].some((key) => targets[key] !== calculatedTargets[key]);
@@ -526,36 +539,45 @@ export function ProfileModal({ profile, onboarding = false, onClose, onSave }) {
       const nextWeight = fromDisplayWeight(value, weightUnit);
       if (onboarding && !targetWeightEdited) {
         setTargetWeightText(value);
-        setGuided({ bodyweight: nextWeight }, { targetBodyweight: nextWeight, targetBodyFat });
+        setGuided({ bodyweight: nextWeight, targetBodyweight: nextWeight });
       } else {
         setGuided({ bodyweight: nextWeight });
       }
     }
   };
+  const changeSex = (value) => {
+    setGuided({ sex: value || null });
+    if (value) setExampleSex(value);
+  };
+  const changeAge = (value) => {
+    setAgeText(value);
+    setGuided({ birthYear: birthYearForAge(optionalNum(value)) });
+  };
   const changeTargetWeight = (value) => {
     setTargetWeightEdited(true);
     setTargetWeightText(value);
-    setGuided({}, { targetBodyweight: fromDisplayWeight(num(value), weightUnit), targetBodyFat });
+    setGuided({ targetBodyweight: fromDisplayWeight(num(value), weightUnit) });
   };
   const changeTargetBodyFat = (value) => {
     setTargetBodyFatText(value);
-    setGuided({}, { targetBodyweight, targetBodyFat: num(value) });
+    setGuided({ targetBodyFat: optionalNum(value) });
   };
-  const changeGoal = (key, value) => {
-    setGuided({ goalMix: { ...normalizeGoalMix(draft.goalMix), [key]: Number(value) } });
-  };
-  const mix = normalizeGoalMix(draft.goalMix);
+  const bodyFatOutOfRange = targetBodyFat != null && (targetBodyFat < 3 || targetBodyFat > 60);
+  const ageOutOfRange = age != null && (age < 13 || age > 100);
   const invalid = num(weightText) <= 0
     || (heightUnit === 'metric' ? num(heightCmText) <= 0 : num(heightFeetText) <= 0 && num(heightInchesText) <= 0)
     || targetBodyweight < 35
-    || targetBodyFat < 3
-    || targetBodyFat > 60
+    || bodyFatOutOfRange
+    || ageOutOfRange
     || targets.calories <= 0;
+  const hint = bodyFatOutOfRange ? 'Target body fat must be between 3% and 60%, or left blank.'
+    : ageOutOfRange ? 'Age must be between 13 and 100, or left blank.'
+    : null;
 
   const save = () => {
     if (invalid) return;
     // The weight unit picked here is the unit the rest of the app displays.
-    onSave({ ...draft, heightUnit, weightUnit, units: weightUnit, targetBodyweight, targetBodyFat, targets: onboarding ? calculatedTargets : targets, onboarded: true });
+    onSave({ ...draft, heightUnit, weightUnit, units: weightUnit, targetBodyweight, targetBodyFat, birthYear: inputs.birthYear, targets: onboarding ? calculatedTargets : targets, onboarded: true });
   };
 
   return (
@@ -591,11 +613,22 @@ export function ProfileModal({ profile, onboarding = false, onClose, onSave }) {
             </select>
           </div>
         </Field>
+        <Field label="Sex">
+          <select className="input" aria-label="Sex" value={draft.sex ?? ''} onChange={(e) => changeSex(e.target.value)}>
+            <option value="">Not set</option>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+          </select>
+        </Field>
+        <Field label="Age">
+          <NumberInput step="1" min="13" max="100" value={ageText} onChange={changeAge} placeholder="Not set" aria-label="Age" />
+        </Field>
       </div>
+      {(!draft.sex || age == null) && <span className="muted form-note">Adding your sex and age makes the calorie estimate more accurate.</span>}
       <div className="card panel stack">
         <div>
           <strong>Body composition targets</strong>
-          <div className="muted" style={{ marginTop: 4 }}>Set the outcome you’re working towards. Daily nutrition targets update from these values.</div>
+          <div className="muted" style={{ marginTop: 4 }}>Your target weight sets the direction and pace. Target body fat is optional, so leave it blank if you’re not sure.</div>
         </div>
         <div className="form-grid">
           <Field label="Target body weight">
@@ -604,22 +637,32 @@ export function ProfileModal({ profile, onboarding = false, onClose, onSave }) {
               <span className="input-unit" aria-hidden="true">{weightUnitLabel(weightUnit)}</span>
             </div>
           </Field>
-          <Field label="Target body fat">
+          <Field label="Target body fat (optional)">
             <div className="row" style={{ alignItems: 'stretch', flexWrap: 'nowrap' }}>
-              <NumberInput step="0.1" min="3" max="60" value={targetBodyFatText} onChange={changeTargetBodyFat} placeholder={String(DEFAULT_TARGET_BODY_FAT)} style={{ flex: 1, minWidth: 0 }} aria-label="Target body fat" />
+              <NumberInput step="0.1" min="3" max="60" value={targetBodyFatText} onChange={changeTargetBodyFat} placeholder="Not set" style={{ flex: 1, minWidth: 0 }} aria-label="Target body fat" />
               <span className="input-unit" aria-hidden="true">%</span>
             </div>
           </Field>
         </div>
+        <button className="btn-ghost" type="button" style={{ justifySelf: 'start' }} aria-expanded={showBodyFatExamples} onClick={() => setShowBodyFatExamples(!showBodyFatExamples)}>
+          <PersonStanding size={16} /> {showBodyFatExamples ? 'Hide body-fat examples' : 'Not sure? See body-fat examples'}
+        </button>
+        {showBodyFatExamples && (
+          <BodyFatReference sex={exampleSex} onSexChange={setExampleSex} value={targetBodyFat} onPick={(bodyFat) => changeTargetBodyFat(text(bodyFat))} />
+        )}
       </div>
       <div className="card panel stack">
-        <strong>Training priorities</strong>
-        {PROFILE_GOALS.map((goal) => (
-          <label key={goal.key} className="stack" style={{ gap: 6 }}>
-            <div className="split"><span className="secondary">{goal.label}</span><strong>{mix[goal.key]}%</strong></div>
-            <input className="range" type="range" min="0" max="100" step="5" value={mix[goal.key]} onChange={(e) => changeGoal(goal.key, e.target.value)} />
-          </label>
-        ))}
+        <div>
+          <strong>Training priorities</strong>
+          <div className="muted" style={{ marginTop: 4 }}>Drag to rank what matters most to you. The higher a priority is, the more it shapes your calories and macros.</div>
+        </div>
+        <PriorityRanking priorities={draft.priorities} onChange={(priorities) => setGuided({ priorities })} />
+        <Segmented
+          label="Training days per week"
+          value={draft.trainingDays}
+          options={TRAINING_DAYS.map((option) => ({ value: option.id, label: option.label }))}
+          onChange={(trainingDays) => setGuided({ trainingDays })}
+        />
       </div>
       <div className="card panel stack">
         <div className="split">
@@ -632,6 +675,9 @@ export function ProfileModal({ profile, onboarding = false, onClose, onSave }) {
           <div><div className="metric">{onboarding ? calculatedTargets.carbs : targets.carbs}g</div><span className="muted">carbs</span></div>
           <div><div className="metric">{onboarding ? calculatedTargets.fat : targets.fat}g</div><span className="muted">fat</span></div>
         </div>
+        <span className="muted">
+          Estimated maintenance {fmtCalories(maintenance)} · {goal.direction === 'maintain' ? 'maintaining weight' : `aiming to ${goal.direction} ${fmtWeight(goal.kg, weightUnit)}`}
+        </span>
       </div>
       {!onboarding && (
         <details className="card panel">
@@ -651,6 +697,7 @@ export function ProfileModal({ profile, onboarding = false, onClose, onSave }) {
           </div>
         </details>
       )}
+      {hint && <span className="muted modal-hint" role="status">{hint}</span>}
       <div className="row modal-actions modal-footer">
         <button className="btn-secondary" type="button" onClick={onClose}>{onboarding ? 'Skip for now' : 'Cancel'}</button>
         <button className="btn-primary" type="submit" disabled={invalid}><Save size={18} /> {onboarding ? 'Get started' : 'Save'}</button>

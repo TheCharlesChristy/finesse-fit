@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   addTotals, applyProgression, attributeVolume, backupReminder, bestE1rmByExercise, bestSetsByDate,
-  buildAiContext, calculateNutritionTargets, dateKey, estimateOneRepMax, estimateTdee, fmtDuration, fmtRelativeDay,
+  ageFromBirthYear, buildAiContext, calculateNutritionTargets, compositionGoal, dateKey, estimateMaintenanceCalories, estimateOneRepMax, estimateTdee, fmtDuration, fmtRelativeDay,
   fmtWeight, findPersonalRecords, fromDisplayHeight, fromDisplayWeight, fromFeetInches, goalEta,
   goalProgress, groupLogsByMeal, hitsTarget, lastNDays, lastSessionFor, lastTrainedByMuscle,
-  mealForTime, neglectedMuscles, normalizeBodyCompositionTargets, normalizeGoalMix, percent, personalRecordsByWorkout, retargetCalories,
+  mealForTime, neglectedMuscles, normalizeBodyCompositionTargets, normalizeGoalMix, normalizePriorities, normalizeTrainingDays, percent, personalRecordsByWorkout, retargetCalories,
   round, scaleNutrition, setLoad, setVolume, shiftDay, shiftWeekKey, snoozeUntil, suggestProgression,
   summariseSets, toDisplayHeight, toDisplayWeight, toFeetInches, weekDays, weekKey, weekLabel,
   weightRatePerWeek, weightTrend
@@ -248,9 +248,64 @@ describe('calculateNutritionTargets', () => {
     expect(calculateNutritionTargets({ ...base, targetBodyweight: 88 }).calories).toBeGreaterThan(calculateNutritionTargets(base).calories);
     expect(calculateNutritionTargets({ ...base, targetBodyFat: 12 }).calories).toBeLessThan(calculateNutritionTargets(base).calories);
   });
-  it('normalizes direct body-composition targets and defaults the weight to current weight', () => {
-    expect(normalizeBodyCompositionTargets({ bodyweight: 82 })).toEqual({ targetBodyweight: 82, targetBodyFat: 20 });
+  it('normalizes direct body-composition targets, defaulting the weight to current weight and leaving body fat unset', () => {
+    expect(normalizeBodyCompositionTargets({ bodyweight: 82 })).toEqual({ targetBodyweight: 82, targetBodyFat: null });
+    expect(normalizeBodyCompositionTargets({ bodyweight: 82, targetBodyFat: '' })).toEqual({ targetBodyweight: 82, targetBodyFat: null });
     expect(normalizeBodyCompositionTargets({ bodyweight: 82, targetBodyweight: 20, targetBodyFat: 90 })).toEqual({ targetBodyweight: 35, targetBodyFat: 60 });
+  });
+
+  const TODAY = '2026-09-14';
+  const person = { sex: 'male', birthYear: 1996, height: 178, bodyweight: 78, targetBodyweight: 78, trainingDays: '2-3' };
+
+  it('a blank body-fat target has no effect — same as aiming for what is typical for that sex', () => {
+    const blank = calculateNutritionTargets(person, TODAY);
+    expect(calculateNutritionTargets({ ...person, targetBodyFat: 20 }, TODAY)).toEqual(blank);
+    expect(calculateNutritionTargets({ ...person, sex: 'female', targetBodyFat: 28 }, TODAY)).toEqual(calculateNutritionTargets({ ...person, sex: 'female' }, TODAY));
+  });
+  it('judges a body-fat target against the norm for the user\'s sex', () => {
+    // 25% is above typical for men (a leaner target is not being asked for) but below typical for women.
+    const male = { ...person, sex: 'male' };
+    const female = { ...person, sex: 'female' };
+    expect(calculateNutritionTargets({ ...male, targetBodyFat: 25 }, TODAY).calories).toBeGreaterThan(calculateNutritionTargets(male, TODAY).calories);
+    expect(calculateNutritionTargets({ ...female, targetBodyFat: 25 }, TODAY).calories).toBeLessThan(calculateNutritionTargets(female, TODAY).calories);
+  });
+  it('estimates maintenance with Mifflin-St Jeor × the training-days multiplier', () => {
+    // 10×78 + 6.25×178 − 5×30 + 5 = 1747.5, × 1.375 for 2–3 days
+    expect(estimateMaintenanceCalories(person, TODAY)).toBe(Math.round(1747.5 * 1.375));
+    expect(estimateMaintenanceCalories({ ...person, sex: 'female' }, TODAY)).toBeLessThan(estimateMaintenanceCalories(person, TODAY));
+    expect(estimateMaintenanceCalories({ ...person, birthYear: 1966 }, TODAY)).toBeLessThan(estimateMaintenanceCalories(person, TODAY));
+    expect(estimateMaintenanceCalories({ ...person, trainingDays: '6+' }, TODAY)).toBeGreaterThan(estimateMaintenanceCalories(person, TODAY));
+  });
+  it('maintaining weight lands on maintenance unless endurance is the top priority', () => {
+    const maintenance = estimateMaintenanceCalories(person, TODAY);
+    const round25 = (value) => Math.round(value / 25) * 25;
+    expect(calculateNutritionTargets({ ...person, priorities: ['size', 'strength', 'health', 'endurance'] }, TODAY).calories).toBe(round25(maintenance));
+    expect(calculateNutritionTargets({ ...person, priorities: ['endurance'] }, TODAY).calories).toBeGreaterThan(round25(maintenance));
+  });
+  it('ranked priorities shape the macros: size → protein, health → fat and a gentler cut, endurance → carbs', () => {
+    const cutting = { ...person, bodyweight: 88, targetBodyweight: 78 };
+    const rank = (first) => calculateNutritionTargets({ ...cutting, priorities: [first] }, TODAY);
+    const last = (id) => calculateNutritionTargets({ ...cutting, priorities: normalizePriorities([]).filter((p) => p !== id).concat(id) }, TODAY);
+    expect(rank('size').protein).toBeGreaterThan(last('size').protein);
+    expect(rank('health').fat).toBeGreaterThan(last('health').fat);
+    expect(rank('health').calories).toBeGreaterThan(last('health').calories);
+    expect(rank('endurance').carbs).toBeGreaterThan(last('endurance').carbs);
+  });
+  it('bases protein on target weight during a large cut and never drops calories below a floor', () => {
+    const cut = calculateNutritionTargets({ ...person, bodyweight: 120, targetBodyweight: 80 }, TODAY);
+    expect(cut.protein).toBeLessThanOrEqual(80 * 2.4);
+    const tiny = calculateNutritionTargets({ sex: 'female', birthYear: 1946, height: 150, bodyweight: 45, targetBodyweight: 38, trainingDays: '0-1' }, TODAY);
+    expect(tiny.calories).toBeGreaterThanOrEqual(1200);
+  });
+  it('normalizes priorities and training days, and derives age and goal direction', () => {
+    expect(normalizePriorities(['health', 'bogus', 'health'])).toEqual(['health', 'size', 'strength', 'endurance']);
+    expect(normalizePriorities(undefined)).toEqual(['size', 'strength', 'health', 'endurance']);
+    expect(normalizeTrainingDays('4-5')).toBe('4-5');
+    expect(normalizeTrainingDays('daily')).toBe('2-3');
+    expect(ageFromBirthYear(1996, TODAY)).toBe(30);
+    expect(ageFromBirthYear(null, TODAY)).toBeNull();
+    expect(compositionGoal({ bodyweight: 80, targetBodyweight: 74 })).toEqual({ direction: 'lose', kg: 6 });
+    expect(compositionGoal({ bodyweight: 80, targetBodyweight: 80.2 })).toEqual({ direction: 'maintain', kg: 0 });
   });
 });
 
@@ -511,6 +566,23 @@ describe('buildAiContext', () => {
     expect(text).toContain('No goals set.');
     // Context only — it must never phrase a question on the user's behalf.
     expect(text).not.toMatch(/\?/);
+  });
+
+  it('includes sex, age, training days, ranked priorities and goal direction when set, and says when body fat is not set', () => {
+    const full = { ...profile, sex: 'female', birthYear: 1994, height: 165, heightUnit: 'metric', targetBodyFat: null, trainingDays: '4-5', priorities: ['endurance', 'health'] };
+    const text = buildAiContext({ today: '2026-09-14', profile: full });
+    expect(text).toContain('Sex: female · Age: 32 · Height: 165 cm');
+    expect(text).toContain('Training: 4–5 days per week');
+    expect(text).toContain('Training priorities, most important first: 1. Endurance, 2. General health, 3. Muscle size, 4. Strength');
+    expect(text).toContain('Bodyweight: 78 kg → target 70 kg (aiming to lose 8 kg) · no body-fat target set');
+    expect(text).not.toMatch(/\?/);
+  });
+
+  it('leaves out profile fields the user never set rather than stating defaults', () => {
+    const text = buildAiContext({ today: '2026-09-14', profile });
+    expect(text).not.toContain('ABOUT ME');
+    expect(text).not.toContain('Training priorities');
+    expect(text).toContain('target body fat 12%');
   });
 
   it('lists meals, sets (dropping zero-weight bodyweight sets down to reps-only) and goal status', () => {
