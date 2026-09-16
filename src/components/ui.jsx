@@ -103,38 +103,40 @@ export function Modal({
     : {};
 
   return (
-    <div
-      className="modal-overlay"
-      role="presentation"
-      onMouseDown={(event) => { pressedOverlay.current = event.target === event.currentTarget; }}
-      onClick={(event) => {
-        // Only dismiss when the whole click happened on the backdrop, so
-        // dragging a selection out of an input does not close the form.
-        if (pressedOverlay.current && event.target === event.currentTarget) onClose?.();
-      }}
-    >
-      <section
-        ref={boxRef}
-        tabIndex={-1}
-        className={`modal-box card-raised modal-${large ? 'lg' : size}`}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={labelledBy ?? titleId}
+    <Portal>
+      <div
+        className="modal-overlay"
+        role="presentation"
+        onMouseDown={(event) => { pressedOverlay.current = event.target === event.currentTarget; }}
+        onClick={(event) => {
+          // Only dismiss when the whole click happened on the backdrop, so
+          // dragging a selection out of an input does not close the form.
+          if (pressedOverlay.current && event.target === event.currentTarget) onClose?.();
+        }}
       >
-        <header className="modal-header">
-          <div className="modal-heading">
-            <h2 id={titleId} className="modal-title">{title}</h2>
-            {subtitle && <p className="modal-subtitle">{subtitle}</p>}
-          </div>
-          <div className="modal-header-actions">
-            {headerExtra}
-            {onClose && <IconButton label="Close" className="btn-icon btn-icon-quiet" onClick={onClose}><X size={18} /></IconButton>}
-          </div>
-        </header>
-        <Body className="modal-body" {...bodyProps}>{children}</Body>
-        {footer && <footer className="modal-footer">{typeof footer === 'function' ? footer({ formId }) : footer}</footer>}
-      </section>
-    </div>
+        <section
+          ref={boxRef}
+          tabIndex={-1}
+          className={`modal-box card-raised modal-${large ? 'lg' : size}`}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={labelledBy ?? titleId}
+        >
+          <header className="modal-header">
+            <div className="modal-heading">
+              <h2 id={titleId} className="modal-title">{title}</h2>
+              {subtitle && <p className="modal-subtitle">{subtitle}</p>}
+            </div>
+            <div className="modal-header-actions">
+              {headerExtra}
+              {onClose && <IconButton label="Close" className="btn-icon btn-icon-quiet" onClick={onClose}><X size={18} /></IconButton>}
+            </div>
+          </header>
+          <Body className="modal-body" {...bodyProps}>{children}</Body>
+          {footer && <footer className="modal-footer">{typeof footer === 'function' ? footer({ formId }) : footer}</footer>}
+        </section>
+      </div>
+    </Portal>
   );
 }
 
