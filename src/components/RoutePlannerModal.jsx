@@ -71,12 +71,12 @@ export default function RoutePlannerModal({ route, defaultCenter, units, onClose
   }, [waypoints, followPaths]);
 
   useEffect(() => {
-    if (route || defaultCenter) return;
+    if (route) return;
     locationAlreadyAllowed().then((allowed) => allowed && getCurrentFix().then((fix) => {
       setPosition([fix[0], fix[1], fix[3]]);
       setCenter([fix[0], fix[1], 15]);
     }).catch(() => {}));
-  }, [route, defaultCenter]);
+  }, [route]);
 
   const { path, distance } = useMemo(() => {
     if (legacyPath) return { path: legacyPath, distance: route.distance || pathDistance(legacyPath) };
