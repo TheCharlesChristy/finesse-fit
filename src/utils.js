@@ -43,6 +43,21 @@ export const TRAINING_DAYS = [
 ];
 export const DEFAULT_TRAINING_DAYS = '2-3';
 
+// Taste profile: a comprehensive, user-maintained record of food preferences,
+// shared with buildAiContext so meal-related questions don't need it re-typed.
+export const DIETARY_STYLES = [
+  { id: 'vegetarian', label: 'Vegetarian' },
+  { id: 'vegan', label: 'Vegan' },
+  { id: 'pescatarian', label: 'Pescatarian' },
+  { id: 'keto', label: 'Keto' },
+  { id: 'paleo', label: 'Paleo' },
+  { id: 'halal', label: 'Halal' },
+  { id: 'kosher', label: 'Kosher' }
+];
+export const COMMON_ALLERGENS = ['Peanuts', 'Tree nuts', 'Dairy', 'Eggs', 'Gluten', 'Shellfish', 'Fish', 'Soy', 'Sesame'];
+export const COMMON_CUISINES = ['Italian', 'Mexican', 'Indian', 'Chinese', 'Japanese', 'Thai', 'Mediterranean', 'American', 'French', 'Middle Eastern', 'Korean', 'Vietnamese'];
+export const DEFAULT_TASTE_PROFILE = { dietaryStyle: null, allergies: [], cuisines: [], favoriteFoods: [], dislikedFoods: [], notes: '' };
+
 const number = (value, fallback = 0) => {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -258,6 +273,43 @@ export function normalizeTrainingDays(id) {
 
 export const priorityLabel = (id) => TRAINING_PRIORITIES.find((priority) => priority.id === id)?.label ?? id;
 export const trainingDaysLabel = (id) => TRAINING_DAYS.find((option) => option.id === id)?.label ?? id;
+export const dietaryStyleLabel = (id) => DIETARY_STYLES.find((style) => style.id === id)?.label ?? id;
+
+// A tag list (allergies, cuisines, favourites, dislikes) is edited as one
+// comma-separated text field. Trims, drops empties and dedupes
+// case-insensitively while keeping the first casing seen.
+function dedupeTags(list) {
+  const seen = new Set();
+  const result = [];
+  for (const raw of list) {
+    const tag = String(raw ?? '').trim();
+    if (!tag) continue;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(tag);
+  }
+  return result;
+}
+export const parseTagList = (text) => dedupeTags(Array.isArray(text) ? text : String(text ?? '').split(','));
+export const formatTagList = (tags) => (Array.isArray(tags) ? tags.join(', ') : '');
+
+export function normalizeTasteProfile(tasteProfile) {
+  const t = tasteProfile ?? {};
+  return {
+    dietaryStyle: DIETARY_STYLES.some((style) => style.id === t.dietaryStyle) ? t.dietaryStyle : null,
+    allergies: dedupeTags(Array.isArray(t.allergies) ? t.allergies : []),
+    cuisines: dedupeTags(Array.isArray(t.cuisines) ? t.cuisines : []),
+    favoriteFoods: dedupeTags(Array.isArray(t.favoriteFoods) ? t.favoriteFoods : []),
+    dislikedFoods: dedupeTags(Array.isArray(t.dislikedFoods) ? t.dislikedFoods : []),
+    notes: typeof t.notes === 'string' ? t.notes.trim() : ''
+  };
+}
+
+export function hasTasteProfile(tasteProfile) {
+  const t = normalizeTasteProfile(tasteProfile);
+  return Boolean(t.dietaryStyle || t.allergies.length || t.cuisines.length || t.favoriteFoods.length || t.dislikedFoods.length || t.notes);
+}
 
 export function ageFromBirthYear(birthYear, today = new Date()) {
   if (birthYear == null || birthYear === '' || !Number.isFinite(Number(birthYear))) return null;
@@ -758,6 +810,18 @@ export function buildAiContext({ today, profile, totals = {}, meals = [], todayW
     Array.isArray(profile.priorities) && `Training priorities, most important first: ${normalizePriorities(profile.priorities).map((id, index) => `${index + 1}. ${priorityLabel(id)}`).join(', ')}`
   ].filter(Boolean);
   if (about.length) lines.push('ABOUT ME', ...about, '');
+
+  const taste = normalizeTasteProfile(profile.tasteProfile);
+  if (hasTasteProfile(taste)) {
+    lines.push('TASTE PROFILE');
+    if (taste.dietaryStyle) lines.push(`Dietary style: ${dietaryStyleLabel(taste.dietaryStyle)}`);
+    if (taste.allergies.length) lines.push(`Allergies/intolerances: ${taste.allergies.join(', ')}`);
+    if (taste.dislikedFoods.length) lines.push(`Dislikes: ${taste.dislikedFoods.join(', ')}`);
+    if (taste.favoriteFoods.length) lines.push(`Favourites: ${taste.favoriteFoods.join(', ')}`);
+    if (taste.cuisines.length) lines.push(`Preferred cuisines: ${taste.cuisines.join(', ')}`);
+    if (taste.notes) lines.push(`Notes: ${taste.notes}`);
+    lines.push('');
+  }
 
   lines.push('MY TARGETS');
   lines.push(`Daily calories: ${fmtCalories(targets.calories)}`);

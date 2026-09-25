@@ -25,7 +25,7 @@ Deploy the `dist/` folder to any static host (Netlify, Vercel, your Plesk server
 Camera access is required for barcode scanning, and location access for tracking runs — grant them when prompted. Keep the app open on screen during a run: phones pause GPS for web apps in the background.
 
 ## Features
-- **Dashboard** — today's calories and macros against target, today's meals, this week's training, goal progress at a glance, and a one-tap "AI context" export that turns all of that into a paste-ready summary for an AI chat
+- **Dashboard** — today's calories and macros against target, today's meals, this week's training, goal progress at a glance, and a one-tap "AI context" export that turns all of that (plus your taste profile, if set) into a paste-ready summary for an AI chat
 - **Log Food** — scan a barcode to log food in seconds; resolves via local cache → Open Food Facts → manual entry. Recent foods and search for fast re-logging. Or photograph the pack's nutrition table and have the macros read for you to check and save
 - **Foods** — your local food library: scanned, searched, or hand-created; editable per-serving macros
 - **Workouts** — design plans from blocks (sets × reps or time, circuits, runs, interval runs, rests), then start one and tick it off as you go: automatic rest countdowns, hands-free timed circuits and intervals with beeps and optional voice cues, last-session weights pre-filled, and a finished session saved with PR detection. Or log a past session set by set
@@ -34,7 +34,9 @@ Camera access is required for barcode scanning, and location access for tracking
 - **Goals** — strength, bodyweight, weekly-volume, or nutrition-adherence goals, each with a live progress status (bodyweight goals also show an estimated time-to-target)
 - **Settings** — appearance (twelve palettes plus a custom one, dark/light, three
   surface finishes, density, corners, text size, contrast and motion), units,
-  daily targets, persistent-storage/quota, backup export/import, app version and
+  daily targets, a taste profile (dietary style, allergies, favourite/disliked
+  foods, preferred cuisines, notes) shared with the AI context export,
+  persistent-storage/quota, backup export/import, app version and
   update check, full reset
 
 The look is shared with the [Finesse](https://github.com/TheCharlesChristy/finesse-app)

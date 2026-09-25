@@ -3,9 +3,9 @@ import { Check, Copy, History, PersonStanding, Plus, RotateCcw, Save, Share2, Tr
 import { EXERCISE_CATEGORIES, EXERCISE_EQUIPMENT, MUSCLES } from '../data/exercise-library/index.js';
 import { canShareText, copyText, SHARE_COPIED, shareText } from '../share.js';
 import {
-  ageFromBirthYear, applyProgression, bestE1rmByExercise, calculateNutritionTargets, compositionGoal, dateKey, estimateMaintenanceCalories, estimateOneRepMax, EXTRA_NUTRIENTS,
-  fmtCalories, fmtDate, fmtMacro, fmtWeight, fromDisplayHeight, fromDisplayWeight, fromFeetInches, lastSessionFor, mealForTime, mealLabel,
-  muscleLabel, normalizeBodyCompositionTargets, normalizePriorities, normalizeTrainingDays, NUTRIENT_KEYS, NUTRITION_WINDOW_DAYS, round, scaleNutrition, servingLabel, suggestProgression,
+  ageFromBirthYear, applyProgression, bestE1rmByExercise, calculateNutritionTargets, COMMON_ALLERGENS, COMMON_CUISINES, compositionGoal, dateKey, DIETARY_STYLES, estimateMaintenanceCalories, estimateOneRepMax, EXTRA_NUTRIENTS,
+  fmtCalories, fmtDate, fmtMacro, fmtWeight, formatTagList, fromDisplayHeight, fromDisplayWeight, fromFeetInches, lastSessionFor, mealForTime, mealLabel,
+  muscleLabel, normalizeBodyCompositionTargets, normalizePriorities, normalizeTasteProfile, normalizeTrainingDays, NUTRIENT_KEYS, NUTRITION_WINDOW_DAYS, parseTagList, round, scaleNutrition, servingLabel, suggestProgression,
   sumComputed, toDisplayHeight, toDisplayWeight, toFeetInches, TRAINING_DAYS
 } from '../utils.js';
 import BodyFatReference from './BodyFatReference.jsx';
@@ -735,6 +735,90 @@ export function ProfileModal({ profile, onboarding = false, onClose, onSave }) {
           </div>
         </details>
       )}
+    </Modal>
+  );
+}
+
+export function TasteProfileModal({ tasteProfile, onClose, onSave }) {
+  const initial = normalizeTasteProfile(tasteProfile);
+  const [dietaryStyle, setDietaryStyle] = useState(initial.dietaryStyle);
+  const [allergyText, setAllergyText] = useState(formatTagList(initial.allergies));
+  const [cuisineText, setCuisineText] = useState(formatTagList(initial.cuisines));
+  const [favoriteText, setFavoriteText] = useState(formatTagList(initial.favoriteFoods));
+  const [dislikeText, setDislikeText] = useState(formatTagList(initial.dislikedFoods));
+  const [notes, setNotes] = useState(initial.notes);
+
+  const toggleTag = (current, setter, value) => {
+    const tags = parseTagList(current);
+    const has = tags.some((tag) => tag.toLowerCase() === value.toLowerCase());
+    setter(formatTagList(has ? tags.filter((tag) => tag.toLowerCase() !== value.toLowerCase()) : [...tags, value]));
+  };
+
+  const save = () => onSave({
+    dietaryStyle,
+    allergies: parseTagList(allergyText),
+    cuisines: parseTagList(cuisineText),
+    favoriteFoods: parseTagList(favoriteText),
+    dislikedFoods: parseTagList(dislikeText),
+    notes: notes.trim()
+  });
+
+  return (
+    <Modal
+      title="Taste profile"
+      subtitle="Shared with the AI context export, so meal advice can factor in what you actually eat."
+      onClose={onClose}
+      onSubmit={save}
+      size="lg"
+      footer={({ formId }) => <Actions formId={formId} onClose={onClose} />}
+    >
+      <Field label="Dietary style">
+        <div className="chip-row" role="radiogroup" aria-label="Dietary style">
+          <button type="button" role="radio" aria-checked={dietaryStyle == null} className={`chip ${dietaryStyle == null ? 'active' : ''}`} onClick={() => setDietaryStyle(null)}>No restriction</button>
+          {DIETARY_STYLES.map((style) => (
+            <button key={style.id} type="button" role="radio" aria-checked={dietaryStyle === style.id} className={`chip ${dietaryStyle === style.id ? 'active' : ''}`} onClick={() => setDietaryStyle(style.id)}>{style.label}</button>
+          ))}
+        </div>
+      </Field>
+
+      <Field label="Allergies & intolerances">
+        <div className="chip-row">
+          {COMMON_ALLERGENS.map((allergen) => {
+            const active = parseTagList(allergyText).some((tag) => tag.toLowerCase() === allergen.toLowerCase());
+            return <button key={allergen} type="button" aria-pressed={active} className={`chip ${active ? 'active' : ''}`} onClick={() => toggleTag(allergyText, setAllergyText, allergen)}>{allergen}</button>;
+          })}
+        </div>
+        <input className="input" value={allergyText} onChange={(e) => setAllergyText(e.target.value)} placeholder="Anything else, comma separated" aria-label="Other allergies or intolerances" />
+      </Field>
+
+      <Field label="Preferred cuisines">
+        <div className="chip-row">
+          {COMMON_CUISINES.map((cuisine) => {
+            const active = parseTagList(cuisineText).some((tag) => tag.toLowerCase() === cuisine.toLowerCase());
+            return <button key={cuisine} type="button" aria-pressed={active} className={`chip ${active ? 'active' : ''}`} onClick={() => toggleTag(cuisineText, setCuisineText, cuisine)}>{cuisine}</button>;
+          })}
+        </div>
+        <input className="input" value={cuisineText} onChange={(e) => setCuisineText(e.target.value)} placeholder="Anything else, comma separated" aria-label="Other preferred cuisines" />
+      </Field>
+
+      <div className="form-grid">
+        <Field label="Favourite foods">
+          <input className="input" value={favoriteText} onChange={(e) => setFavoriteText(e.target.value)} placeholder="e.g. salmon, sweet potato, dark chocolate" />
+        </Field>
+        <Field label="Foods you dislike">
+          <input className="input" value={dislikeText} onChange={(e) => setDislikeText(e.target.value)} placeholder="e.g. mushrooms, olives" />
+        </Field>
+      </div>
+
+      <Field label="Anything else">
+        <textarea
+          className="input"
+          style={{ minHeight: 90, resize: 'vertical' }}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Spice tolerance, meal timing, cooking constraints, budget…"
+        />
+      </Field>
     </Modal>
   );
 }

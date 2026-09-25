@@ -4,7 +4,7 @@ import { Apple, Dumbbell, Home, LoaderCircle, Settings as SettingsIcon, Trophy }
 import ActivityModal from './components/ActivityModal.jsx';
 import AppShell from './components/AppShell.jsx';
 import BarcodeScanner from './components/BarcodeScanner.jsx';
-import { BodyweightModal, ExerciseModal, FoodModal, GoalModal, LogFoodModal, LogMealModal, ProfileModal, QuickAddModal, WaterGoalModal, WaterLogModal, WorkoutModal } from './components/Modals.jsx';
+import { BodyweightModal, ExerciseModal, FoodModal, GoalModal, LogFoodModal, LogMealModal, ProfileModal, QuickAddModal, TasteProfileModal, WaterGoalModal, WaterLogModal, WorkoutModal } from './components/Modals.jsx';
 import PlanModal from './components/PlanModal.jsx';
 import RoutePlannerModal from './components/RoutePlannerModal.jsx';
 import ScanLabelModal from './components/ScanLabelModal.jsx';
@@ -671,6 +671,7 @@ export default function App() {
             onRequestPersistence={async () => notify((await requestPersistence()) ? 'Storage is now protected' : 'Your browser declined — install the app to your home screen and try again', { duration: 4000 })}
             onProfile={() => setModal({ type: 'profile' })}
             onProfileChange={(patch) => data.saveProfile({ ...profile, ...patch })}
+            onTasteProfile={() => setModal({ type: 'tasteProfile' })}
             onAppearanceChange={(patch) => data.updateProfile({ appearance: { ...profile.appearance, ...patch } })}
             onExport={handleExport}
             onImport={handleImport}
@@ -688,6 +689,13 @@ export default function App() {
           // Skipping onboarding keeps the default targets and stops it reopening on every launch.
           onClose={modal.onboarding ? () => data.saveProfile({ ...profile, onboarded: true }).then(closeModal) : closeModal}
           onSave={(next) => run(async () => { await data.saveProfile(next); closeModal(); }, modal.onboarding ? 'You’re all set' : 'Profile saved')}
+        />
+      )}
+      {modal?.type === 'tasteProfile' && (
+        <TasteProfileModal
+          tasteProfile={profile.tasteProfile}
+          onClose={closeModal}
+          onSave={(tasteProfile) => run(async () => { await data.updateProfile({ tasteProfile }); closeModal(); }, 'Taste profile saved')}
         />
       )}
       {modal?.type === 'food' && <FoodModal food={modal.food} barcode={modal.barcode} prefill={modal.prefill} onClose={closeModal} onSave={saveFood} />}

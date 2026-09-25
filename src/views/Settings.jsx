@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { Database, Download, HardDrive, Info, Palette, RefreshCw, RotateCcw, Ruler, ShieldCheck, Upload, UserRound } from 'lucide-react';
+import { Database, Download, HardDrive, Info, Palette, RefreshCw, RotateCcw, Ruler, ShieldCheck, UtensilsCrossed, Upload, UserRound } from 'lucide-react';
 
 import AppearanceSettings from '../components/AppearanceSettings.jsx';
 import { Card, Meter, PageHeader, Segmented, Tabs } from '../components/ui.jsx';
 import { APP_COMMIT, APP_VERSION, formatBuiltAt } from '../buildInfo.js';
 import { isUpdatePending, updateApp } from '../pwa.js';
 import { formatBytes, STORAGE_BEST_EFFORT, STORAGE_PERSISTED, STORAGE_UNSUPPORTED } from '../storage.js';
-import { fmtCalories, fmtDate, fmtHeight, fmtMacro, fmtWeight, normalizePriorities, priorityLabel, trainingDaysLabel } from '../utils.js';
+import { dietaryStyleLabel, fmtCalories, fmtDate, fmtHeight, fmtMacro, fmtWeight, hasTasteProfile, normalizePriorities, normalizeTasteProfile, priorityLabel, trainingDaysLabel } from '../utils.js';
 
 // What updateApp() found, in the user's terms. Anything unrecognised falls
 // back to 'error' — silence is the one outcome a manual check mustn't have.
@@ -29,9 +29,10 @@ const TABS = [
 
 export default function Settings({
   profile, appearance, resolvedTheme = 'dark', storageState, storageEstimate,
-  onRequestPersistence, onProfile, onProfileChange, onAppearanceChange, onExport, onImport, onClear
+  onRequestPersistence, onProfile, onProfileChange, onTasteProfile, onAppearanceChange, onExport, onImport, onClear
 }) {
   const [tab, setTab] = useState('appearance');
+  const taste = normalizeTasteProfile(profile.tasteProfile);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateReady, setUpdateReady] = useState(() => isUpdatePending());
   const [updateMessage, setUpdateMessage] = useState(null);
@@ -70,6 +71,21 @@ export default function Settings({
               <span className="muted">{fmtCalories(profile.targets.calories)} · P {fmtMacro(profile.targets.protein)} · C {fmtMacro(profile.targets.carbs)} · F {fmtMacro(profile.targets.fat)}</span>
             </div>
             <button className="btn-primary" type="button" onClick={onProfile}>Edit profile & body targets</button>
+          </Card>
+
+          <Card title="Taste profile" icon={UtensilsCrossed}>
+            <div className="list-row stacked">
+              {hasTasteProfile(profile.tasteProfile) ? (
+                <>
+                  {taste.dietaryStyle && <strong>{dietaryStyleLabel(taste.dietaryStyle)}</strong>}
+                  {taste.allergies.length > 0 && <span className="muted">Allergies: {taste.allergies.join(', ')}</span>}
+                  {taste.cuisines.length > 0 && <span className="muted">Cuisines: {taste.cuisines.join(', ')}</span>}
+                </>
+              ) : (
+                <span className="muted">Not set — add allergies, dislikes and preferences so the AI context export can factor them in.</span>
+              )}
+            </div>
+            <button className="btn-primary" type="button" onClick={onTasteProfile}>Edit taste profile</button>
           </Card>
 
           <Card title="Units" icon={Ruler}>

@@ -4,7 +4,8 @@ import {
   ageFromBirthYear, buildAiContext, calculateNutritionTargets, compositionGoal, dateKey, estimateMaintenanceCalories, estimateOneRepMax, estimateTdee, fmtDuration, fmtRelativeDay,
   fmtWeight, findPersonalRecords, fromDisplayHeight, fromDisplayWeight, fromFeetInches, goalEta,
   goalProgress, groupLogsByMeal, hitsTarget, lastNDays, lastSessionFor, lastTrainedByMuscle,
-  mealForTime, neglectedMuscles, normalizeBodyCompositionTargets, normalizeGoalMix, normalizePriorities, normalizeTrainingDays, percent, personalRecordsByWorkout, retargetCalories,
+  hasTasteProfile, mealForTime, neglectedMuscles, normalizeBodyCompositionTargets, normalizeGoalMix, normalizePriorities, normalizeTasteProfile, normalizeTrainingDays,
+  parseTagList, percent, personalRecordsByWorkout, retargetCalories,
   round, scaleNutrition, setLoad, setVolume, shiftDay, shiftWeekKey, snoozeUntil, suggestProgression,
   summariseSets, toDisplayHeight, toDisplayWeight, toFeetInches, weekDays, weekKey, weekLabel,
   weightRatePerWeek, weightTrend
@@ -309,6 +310,29 @@ describe('calculateNutritionTargets', () => {
   });
 });
 
+describe('parseTagList / normalizeTasteProfile / hasTasteProfile', () => {
+  it('trims, drops empties and dedupes case-insensitively while keeping the first casing seen', () => {
+    expect(parseTagList('Peanuts, dairy,  Dairy , , Gluten')).toEqual(['Peanuts', 'dairy', 'Gluten']);
+    expect(parseTagList('')).toEqual([]);
+    expect(parseTagList(undefined)).toEqual([]);
+    expect(parseTagList(['Peanuts', 'peanuts', ' Soy '])).toEqual(['Peanuts', 'Soy']);
+  });
+
+  it('rejects an unknown dietary style and normalizes every field to a stable shape', () => {
+    expect(normalizeTasteProfile(undefined)).toEqual({ dietaryStyle: null, allergies: [], cuisines: [], favoriteFoods: [], dislikedFoods: [], notes: '' });
+    expect(normalizeTasteProfile({ dietaryStyle: 'carnivore' }).dietaryStyle).toBeNull();
+    expect(normalizeTasteProfile({ dietaryStyle: 'vegan' }).dietaryStyle).toBe('vegan');
+    expect(normalizeTasteProfile({ allergies: ['Peanuts', 'peanuts'], notes: '  spicy food please  ' })).toMatchObject({ allergies: ['Peanuts'], notes: 'spicy food please' });
+  });
+
+  it('is false when nothing has been set and true once any field is', () => {
+    expect(hasTasteProfile(undefined)).toBe(false);
+    expect(hasTasteProfile({ dietaryStyle: null, allergies: [], notes: '' })).toBe(false);
+    expect(hasTasteProfile({ notes: 'loves spicy food' })).toBe(true);
+    expect(hasTasteProfile({ dislikedFoods: ['mushrooms'] })).toBe(true);
+  });
+});
+
 describe('percent / hitsTarget', () => {
   it('percent handles a zero or missing target without dividing by zero', () => {
     expect(percent(50, 0)).toBe(0);
@@ -590,7 +614,21 @@ describe('buildAiContext', () => {
     const text = buildAiContext({ today: '2026-09-14', profile });
     expect(text).not.toContain('ABOUT ME');
     expect(text).not.toContain('Training priorities');
+    expect(text).not.toContain('TASTE PROFILE');
     expect(text).toContain('target body fat 12%');
+  });
+
+  it('includes a saved taste profile so meal advice can use it, and never phrases a question', () => {
+    const withTaste = { ...profile, tasteProfile: { dietaryStyle: 'vegan', allergies: ['Peanuts', 'Shellfish'], cuisines: ['Thai', 'Mexican'], favoriteFoods: ['tofu', 'sweet potato'], dislikedFoods: ['mushrooms'], notes: 'Loves spicy food, cooks in under 20 minutes.' } };
+    const text = buildAiContext({ today: '2026-09-14', profile: withTaste });
+    expect(text).toContain('TASTE PROFILE');
+    expect(text).toContain('Dietary style: Vegan');
+    expect(text).toContain('Allergies/intolerances: Peanuts, Shellfish');
+    expect(text).toContain('Dislikes: mushrooms');
+    expect(text).toContain('Favourites: tofu, sweet potato');
+    expect(text).toContain('Preferred cuisines: Thai, Mexican');
+    expect(text).toContain('Notes: Loves spicy food, cooks in under 20 minutes.');
+    expect(text).not.toMatch(/\?/);
   });
 
   it('lists meals, sets (dropping zero-weight bodyweight sets down to reps-only) and goal status', () => {

@@ -322,11 +322,15 @@ Water is stored separately from food logs in `waterLogs`; each entry records an 
 - `neglectedMuscles()` — muscles with no attributed volume in 10+ days.
 - `weeklyReview()` — per-ISO-week adherence, training, PR and weight-trend summary.
 - `goalEta()` — for `type: 'bodyweight'` goals only: projects weeks-to-target from the current 7-day weight trend and `weightRatePerWeek()`. Returns `{ weeks, date, onTrack }`, or `null` if the trend is moving the wrong way, the goal is already achieved, or there's no trustworthy rate yet (needs the same 4-week window as `weightRatePerWeek`). `Goals.jsx` renders it as a line under bodyweight goal cards only.
-- `buildAiContext()` — formats today's targets, nutrition, workout and goal status as one plain-text block, meant to be pasted at the start of an AI chat. Pure formatting only: it takes already-computed pieces (`totals`, `meals` from `groupLogsByMeal`, `todayWorkouts`, `goalData`) rather than reaching into raw tables itself, and it never phrases a question — just states what's true today. `Dashboard.jsx`'s "AI context" button opens `AiContextModal` (`components/Modals.jsx`) with the result, editable before the user copies or shares it via `copyText`/`shareText` (`share.js`).
+- `buildAiContext()` — formats today's targets, nutrition, workout, goal status and (when set) the taste profile as one plain-text block, meant to be pasted at the start of an AI chat. Pure formatting only: it takes already-computed pieces (`totals`, `meals` from `groupLogsByMeal`, `todayWorkouts`, `goalData`) rather than reaching into raw tables itself, and it never phrases a question — just states what's true today. `Dashboard.jsx`'s "AI context" button opens `AiContextModal` (`components/Modals.jsx`) with the result, editable before the user copies or shares it via `copyText`/`shareText` (`share.js`). See "Taste profile" below for `profile.tasteProfile`.
 
 ### Profile extras
 
 `restSeconds` (rest timer default), `sessionSettings` (`{ sound, voice }` defaults for live sessions), `lastExportAt` and `backupSnoozedUntil` (backup reminder), and `reviewDismissedWeek` (weekly review card) live on the profile singleton.
+
+### Taste profile
+
+`profile.tasteProfile` is a comprehensive, user-maintained record of food preferences — `{ dietaryStyle, allergies, cuisines, favoriteFoods, dislikedFoods, notes }` — edited in `TasteProfileModal` (`components/Modals.jsx`, opened from Settings → Profile) and normalised by `normalizeTasteProfile()` in `utils.js`. `dietaryStyle` is one of `DIETARY_STYLES`' ids or `null`; `allergies`/`cuisines`/`favoriteFoods`/`dislikedFoods` are tag lists edited as one comma-separated text field per field and parsed with `parseTagList()` (trims, drops empties, dedupes case-insensitively) — `COMMON_ALLERGENS`/`COMMON_CUISINES` just give the modal's quick-toggle chips a starting vocabulary, not a closed list. `hasTasteProfile()` is true once any field is set. Like `priorities`/`trainingDays`, it's stored straight on the profile row (no schema bump — the `profile` table isn't indexed on it) and carried automatically by `exportData()`/`importData()` since those export the whole row. `buildAiContext()` includes a TASTE PROFILE section whenever `hasTasteProfile()` is true, so an AI chat gets it without the user re-typing it.
 
 ### Home-screen shortcuts
 
