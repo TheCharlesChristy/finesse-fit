@@ -1,6 +1,6 @@
 /**
  * Turning raw OCR text of a nutrition label photo into candidate per-100g
- * macro values — pure text parsing, no Dexie, no React, no side effects.
+ * nutrition values — pure text parsing, no Dexie, no React, no side effects.
  *
  * A photographed label is a much messier source than a barcode lookup: OCR
  * line breaks rarely land where the table's columns do, decimal commas and
@@ -13,6 +13,7 @@
  * empty or incorrect field the user corrects before saving, never silently
  * wrong data.
  */
+import { convertNutrientAmount, MICRONUTRIENTS } from './micronutrients.js';
 
 // Per UK/EU nutrition-label regulation, when a table has two value columns
 // the "per 100g/100ml" column is always the first one, "per serving" second
@@ -33,6 +34,7 @@ const CALORIES_WORD_NUMBER = /\bcalories\b\D*(\d+(?:\.\d+)?)/i;
 // Negative lookbehind excludes "mg" (sodium) from matching as a gram value.
 const GRAM_NUMBER = /(\d+(?:\.\d+)?)\s*(?<!m)g\b/gi;
 const MG_NUMBER = /(\d+(?:\.\d+)?)\s*mg\b/i;
+const MICRO_NUTRIENT_NUMBER = /(\d+(?:\.\d+)?)\s*(µg|μg|mcg|ug|mg|g)\b/i;
 
 const NUTRIENT_LINE_PATTERNS = {
   protein: /protein/i,
@@ -102,6 +104,15 @@ function findSalt(lines) {
   return null;
 }
 
+function findMicronutrient(lines, nutrient) {
+  for (const line of lines) {
+    if (!nutrient.labelPattern.test(line)) continue;
+    const match = MICRO_NUTRIENT_NUMBER.exec(line);
+    if (match) return convertNutrientAmount(Number.parseFloat(match[1]), match[2], nutrient.unit, nutrient.key);
+  }
+  return null;
+}
+
 function findServingGrams(lines) {
   for (const line of lines) {
     if (!SERVING_LINE.test(line)) continue;
@@ -142,7 +153,8 @@ export function parseNutritionLabel(text) {
     fat: findGramNutrient(lines, NUTRIENT_LINE_PATTERNS.fat, FAT_EXCLUDE),
     fibre: findGramNutrient(lines, NUTRIENT_LINE_PATTERNS.fibre),
     sugar: findGramNutrient(lines, NUTRIENT_LINE_PATTERNS.sugar),
-    salt: findSalt(lines)
+    salt: findSalt(lines),
+    ...Object.fromEntries(MICRONUTRIENTS.map((nutrient) => [nutrient.key, findMicronutrient(lines, nutrient)]))
   };
 
   const per100 = {};

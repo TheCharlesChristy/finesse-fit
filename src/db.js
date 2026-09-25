@@ -86,6 +86,27 @@ db.version(5).stores({
   activeSession: 'id'
 });
 
+// v6: standalone water entries, separate from food because users may want to
+// track plain water without adding it as a food or affecting nutrition totals.
+db.version(6).stores({
+  profile: '++id',
+  foods: '++id, barcode, name',
+  foodLogs: '++id, date, mealType',
+  dailyTotals: '++id, &date',
+  exercises: '++id, name',
+  workouts: '++id, date',
+  muscleVolume: '++id, muscle, weekKey',
+  bodyweightLogs: '++id, date',
+  goals: '++id, type',
+  meals: '++id, name',
+  templates: '++id, name',
+  photos: '++id, date',
+  tracks: '++id, workoutId',
+  routes: '++id, name',
+  activeSession: 'id',
+  waterLogs: '++id, date'
+});
+
 export const DEFAULT_PROFILE = {
   id: 1,
   units: 'metric',
@@ -96,6 +117,8 @@ export const DEFAULT_PROFILE = {
   targetBodyweight: 78,
   // Optional — null means the user hasn't picked a body-fat target.
   targetBodyFat: null,
+  // Optional — users choose their own water target; no default is prescribed.
+  waterTargetMl: null,
   // sex/birthYear are optional too; priorities/trainingDays are only stored
   // once the user saves the Profile modal (see calculateNutritionTargets).
   sex: null,
@@ -106,7 +129,7 @@ export const DEFAULT_PROFILE = {
   appearance: DEFAULT_APPEARANCE
 };
 
-const TABLES = ['profile', 'foods', 'foodLogs', 'dailyTotals', 'exercises', 'workouts', 'muscleVolume', 'bodyweightLogs', 'goals', 'meals', 'templates', 'routes', 'tracks'];
+const TABLES = ['profile', 'foods', 'foodLogs', 'dailyTotals', 'exercises', 'workouts', 'muscleVolume', 'bodyweightLogs', 'goals', 'meals', 'templates', 'routes', 'tracks', 'waterLogs'];
 // Photos hold raw image bytes, not JSON-friendly data — they're excluded from
 // exportData()/importData() (see photos.js) but must still be wiped by a full
 // reset, so clearAllData() clears TABLES + BINARY_TABLES together.
@@ -212,7 +235,7 @@ async function removeRow(table, id) {
 }
 
 // Undo for simple tables (no derived counters): put the row back with its original id.
-const RESTORABLE = new Set(['foods', 'bodyweightLogs', 'goals', 'meals', 'templates', 'photos', 'routes']);
+const RESTORABLE = new Set(['foods', 'bodyweightLogs', 'goals', 'meals', 'templates', 'photos', 'routes', 'waterLogs']);
 export function restoreRow(table, row) {
   if (!RESTORABLE.has(table)) throw new Error(`Cannot restore ${table}`);
   return db[table].put(row);
@@ -435,13 +458,20 @@ export const clearActiveSession = () => db.activeSession.clear();
 export const getBodyweightLogs = () => db.bodyweightLogs.orderBy('date').toArray();
 export const addBodyweightLog = (row) => db.bodyweightLogs.add({ date: row.date, weight: Number(row.weight) });
 export const deleteBodyweightLog = (id) => removeRow('bodyweightLogs', id);
+export const getWaterLogs = () => db.waterLogs.orderBy('date').reverse().toArray();
+export async function addWaterLog({ date = dateKey(), ml }) {
+  const amount = Math.round(Number(ml));
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error('Water amount must be above 0 ml.');
+  return db.waterLogs.add({ date: dateKey(date), ml: amount, loggedAt: new Date().toISOString() });
+}
+export const deleteWaterLog = (id) => removeRow('waterLogs', id);
 export const getGoals = () => db.goals.orderBy('type').toArray();
 export const addGoal = (goal) => db.goals.add(goal);
 export const updateGoal = (id, updates) => db.goals.update(id, updates);
 export const deleteGoal = (id) => removeRow('goals', id);
 
 export async function exportData() {
-  const payload = { version: 4, exportedAt: new Date().toISOString() };
+  const payload = { version: 5, exportedAt: new Date().toISOString() };
   for (const table of TABLES) payload[table] = await db[table].toArray();
   return payload;
 }
@@ -506,6 +536,7 @@ export async function importData(data, mode = 'merge') {
       else await db.muscleVolume.add(stripId(row));
     }
     for (const row of data.bodyweightLogs ?? []) await db.bodyweightLogs.add(stripId(row));
+    for (const row of data.waterLogs ?? []) await db.waterLogs.add(stripId(row));
     for (const row of data.meals ?? []) {
       await db.meals.add({ ...stripId(row), items: (row.items ?? []).map((item) => ({ ...item, foodId: foodMap.get(key(item.foodId)) ?? item.foodId })) });
     }

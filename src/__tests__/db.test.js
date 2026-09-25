@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
-  addBodyweightLog, addExercise, addFood, addFoodLog, addGoal, addPlan, addProgressPhoto, addQuickLog, addRoute, addWorkout,
+  addBodyweightLog, addExercise, addFood, addFoodLog, addGoal, addPlan, addProgressPhoto, addQuickLog, addRoute, addWaterLog, addWorkout,
   clearAllData, copyFoodLogs, db, DEFAULT_PROFILE, deleteFoodLog, deleteWorkout, exportData, getActiveSession, getCustomExercises, getDailyTotals,
-  getFoodLogs, getGoals, getMuscleVolume, getPlans, getProfile, getProgressPhotos, getRoutes, getTrackForWorkout, getWorkouts,
+  getFoodLogs, getGoals, getMuscleVolume, getPlans, getProfile, getProgressPhotos, getRoutes, getTrackForWorkout, getWaterLogs, getWorkouts,
   hasActiveSession, importData, restoreFoodLog, restoreRow, restoreWorkout, saveActiveSession, saveProfile, saveSessionWorkout, updateFood,
   updateFoodLog, updatePlan, updateWorkout, validateImport
 } from '../db.js';
@@ -225,6 +225,19 @@ describe('export / import', () => {
     expect(log.computed.calories).toBe(150);
   });
 
+  it('round-trips water entries and the optional water goal through export → replace-import', async () => {
+    await saveProfile({ ...DEFAULT_PROFILE, waterTargetMl: 2200 });
+    await addWaterLog({ date: '2026-09-25', ml: 375 });
+    const payload = JSON.parse(JSON.stringify(await exportData()));
+
+    expect(payload.version).toBe(5);
+    expect(payload.waterLogs).toHaveLength(1);
+    await importData(payload, 'replace');
+
+    expect(await getWaterLogs()).toMatchObject([{ date: '2026-09-25', ml: 375 }]);
+    expect(await getProfile()).toMatchObject({ waterTargetMl: 2200 });
+  });
+
   it('import remaps a workout\'s exerciseId to the newly-assigned exercise id', async () => {
     const exerciseId = await addExercise(BENCH);
     await addWorkout({ date: today, sets: [{ exerciseId, weight: 80, reps: 8 }] }, [{ ...BENCH, id: exerciseId }]);
@@ -335,7 +348,7 @@ describe('live sessions, plans, routes and GPS tracks', () => {
     const planId = await addPlan({ name: 'Mixed', blocks: [{ kind: 'exercise', exerciseId: benchId }, { kind: 'cardio', routeId, goal: { type: 'distance', meters: 1112 } }] });
     await saveSessionWorkout({ workout: { date: today, planId, routeId, sets: [{ exerciseId: benchId, reps: 5, weight: 60 }], cardio: [{ activity: 'run', meters: 1112 }] }, track: { segments } }, [{ ...BENCH, id: benchId }]);
     const payload = JSON.parse(JSON.stringify(await exportData()));
-    expect(payload.version).toBe(4);
+    expect(payload.version).toBe(5);
     expect(payload.activeSession).toBeUndefined();
 
     await Promise.all(db.tables.map((table) => table.clear()));

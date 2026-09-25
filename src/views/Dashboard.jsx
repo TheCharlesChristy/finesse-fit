@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Apple, Barcode, Bot, BookmarkPlus, CalendarCheck, CopyPlus, Download, Dumbbell, Plus, Scale, ShieldAlert, Sparkles, Target, X } from 'lucide-react';
+import { Apple, Barcode, Bot, BookmarkPlus, CalendarCheck, CopyPlus, Download, Droplets, Dumbbell, Plus, Scale, ShieldAlert, Sparkles, Target, X } from 'lucide-react';
 import { AiContextModal } from '../components/Modals.jsx';
 import { CardTitle, EmptyState, IconButton, PageHeader } from '../components/ui.jsx';
 import StatRing from '../components/StatRing.jsx';
 import WeekReview from '../components/WeekReview.jsx';
 import { MUSCLES } from '../data/exercises.js';
 import { fmtDistance } from '../geo.js';
+import { formatNutrientAmount, MICRONUTRIENTS } from '../micronutrients.js';
 import { buildAiContext, EXTRA_NUTRIENTS, GOAL_STATUS, backupReminder, dateKey, fmtCalories, fmtCompact, fmtDate, fmtWeight, goalProgress, groupLogsByMeal, mealLabel, muscleLabel, neglectedMuscles, percent, shiftDay, shiftWeekKey, weekDays, weekKey, weekLabel, weeklyReview, weightRatePerWeek, weightTrend } from '../utils.js';
 
 function LedgerRow({ label, value, target, unit, color }) {
@@ -43,7 +44,100 @@ function HeroNutrition({ totals, targets }) {
   );
 }
 
-export default function Dashboard({ profile, foodLogs, dailyTotals, workouts, muscleVolume, goals, bodyweightLogs, exercises, today, onSetView, onScan, onEditLog, onAddWorkout, onProfile, onSaveMeal, onCopyLogs, onExport, onSnoozeBackup, onDismissReview }) {
+function formatWater(ml) {
+  return ml >= 1000 ? `${Number((ml / 1000).toFixed(2))} L` : `${Math.round(ml).toLocaleString()} ml`;
+}
+
+function WaterTracker({ logs, today, targetMl, onAddWater, onCustomWater, onEditGoal, onDelete }) {
+  const todayLogs = logs.filter((log) => log.date === today).sort((a, b) => (b.loggedAt ?? '').localeCompare(a.loggedAt ?? '') || b.id - a.id);
+  const total = todayLogs.reduce((sum, log) => sum + (Number(log.ml) || 0), 0);
+  const target = Number(targetMl) > 0 ? Number(targetMl) : null;
+  const progress = target ? Math.min(100, total / target * 100) : 0;
+
+  return (
+    <section className="card panel stack">
+      <CardTitle icon={Droplets} action={<button className="btn-ghost" type="button" onClick={onEditGoal}>{target ? 'Edit goal' : 'Set goal'}</button>}>
+        Water
+      </CardTitle>
+      <div className="split">
+        <strong className="metric">{formatWater(total)}</strong>
+        {target && <span className="muted">of {formatWater(target)}</span>}
+      </div>
+      {target ? (
+        <div className="progress-track thin" role="progressbar" aria-label="Water intake against your daily goal" aria-valuemin="0" aria-valuemax={target} aria-valuenow={Math.min(total, target)} aria-valuetext={`${formatWater(total)} of ${formatWater(target)}`}>
+          <div className="progress-fill" style={{ '--value': `${progress}%`, '--bar': 'var(--info)' }} />
+        </div>
+      ) : <span className="muted">Set your own daily target to see progress.</span>}
+      <div className="row" style={{ flexWrap: 'wrap' }}>
+        <button className="btn-secondary" type="button" onClick={() => onAddWater(250)}>+250 ml</button>
+        <button className="btn-secondary" type="button" onClick={() => onAddWater(500)}>+500 ml</button>
+        <button className="btn-ghost" type="button" onClick={onCustomWater}><Plus size={16} /> Custom</button>
+      </div>
+      {todayLogs.length > 0 && (
+        <details className="stack" style={{ gap: 'var(--gap-sm)' }}>
+          <summary className="meal-heading">Entries ({todayLogs.length})</summary>
+          <div className="list">
+            {todayLogs.map((log) => (
+              <div className="list-row" key={log.id}>
+                <div className="list-main">
+                  <strong>{formatWater(Number(log.ml) || 0)}</strong>
+                  <span className="muted">{log.loggedAt ? new Date(log.loggedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'Logged today'}</span>
+                </div>
+                <IconButton label={`Delete ${formatWater(Number(log.ml) || 0)} water entry`} onClick={() => onDelete(log.id)}><X size={16} /></IconButton>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </section>
+  );
+}
+
+function MicronutrientTracker({ totals, hasData, onAddFood }) {
+  const row = ({ key, label, unit, target }) => {
+    const value = Number(totals[key]) || 0;
+    const tracked = Number(totals.micronutrientCounts?.[key]) > 0 || value > 0;
+    const pct = tracked ? Math.min(100, (value / target) * 100) : 0;
+    return (
+      <div key={key} className="ledger-row">
+        <span className="eyebrow" title={label}>{label}</span>
+        <div className="progress-track thin" role="progressbar" aria-label={`${label} of adult label reference`} aria-valuetext={tracked ? `${formatNutrientAmount(value)} ${unit} of ${formatNutrientAmount(target)} ${unit}` : 'No food data'} aria-valuemin="0" aria-valuemax={target} aria-valuenow={Math.min(value, target)}>
+          <div className="progress-fill" style={{ '--value': `${pct}%`, '--bar': 'var(--accent-2)' }} />
+        </div>
+        <span className="metric ledger-value">{tracked ? formatNutrientAmount(value) : '—'}<span className="ledger-unit">/{formatNutrientAmount(target)} {unit}</span></span>
+      </div>
+    );
+  };
+  const groups = (nutrients) => ['Vitamins', 'Minerals'].map((group) => (
+    <div key={group} className="meal-group">
+      <span className="meal-heading">{group}</span>
+      <div className="list">{nutrients.filter((nutrient) => nutrient.group === group).map(row)}</div>
+    </div>
+  ));
+
+  return (
+    <section className="card panel stack">
+      <CardTitle icon={Sparkles} action={<button className="btn-ghost" type="button" onClick={onAddFood}><Plus size={16} /> Log food</button>}>
+        Micronutrients
+      </CardTitle>
+      <span className="muted">
+        Daily intake · <a href="https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32011R1169" target="_blank" rel="noreferrer">EU adult label references</a>
+      </span>
+      {groups(MICRONUTRIENTS.filter(({ featured }) => featured))}
+      <details className="stack" style={{ gap: 'var(--gap-sm)' }}>
+        <summary className="meal-heading">More vitamins and minerals ({MICRONUTRIENTS.filter(({ featured }) => !featured).length})</summary>
+        {groups(MICRONUTRIENTS.filter(({ featured }) => !featured))}
+      </details>
+      <span className="muted">
+        {hasData
+          ? 'Only values supplied with food data are counted; missing amounts are unknown, not zero.'
+          : 'Add micronutrient values to foods when available. These general references are not personalised targets.'}
+      </span>
+    </section>
+  );
+}
+
+export default function Dashboard({ profile, foodLogs, dailyTotals, workouts, muscleVolume, goals, bodyweightLogs, waterLogs, exercises, today, onSetView, onScan, onEditLog, onAddWorkout, onProfile, onSaveMeal, onCopyLogs, onExport, onSnoozeBackup, onDismissReview, onAddWater, onCustomWater, onEditWaterGoal, onDeleteWater }) {
   const [aiContextOpen, setAiContextOpen] = useState(false);
   const totals = dailyTotals.find((row) => row.date === today) ?? {};
   const todayLogs = foodLogs.filter((log) => dateKey(log.date) === today);
@@ -51,7 +145,7 @@ export default function Dashboard({ profile, foodLogs, dailyTotals, workouts, mu
   const meals = groupLogsByMeal(todayLogs);
   const yesterday = shiftDay(today, -1);
   const yesterdayMeals = groupLogsByMeal(foodLogs.filter((log) => dateKey(log.date) === yesterday));
-  const firstActivityDate = [dailyTotals[0]?.date, bodyweightLogs[0]?.date, workouts.at(-1)?.date].filter(Boolean).map((date) => dateKey(date)).sort()[0];
+  const firstActivityDate = [dailyTotals[0]?.date, bodyweightLogs[0]?.date, waterLogs.at(-1)?.date, workouts.at(-1)?.date].filter(Boolean).map((date) => dateKey(date)).sort()[0];
   const backup = backupReminder({ lastExportAt: profile.lastExportAt, snoozedUntil: profile.backupSnoozedUntil, firstActivityDate, today });
   const week = weekKey(today);
   const weekVolume = muscleVolume.filter((row) => row.weekKey === week).reduce((sum, row) => sum + row.volume, 0);
@@ -70,7 +164,7 @@ export default function Dashboard({ profile, foodLogs, dailyTotals, workouts, mu
     ? weeklyReview({ week: lastWeek, dailyTotals, workouts, muscleVolume, bodyweightLogs, profile })
     : null;
   const goalData = { workouts, muscleVolume, dailyTotals, bodyweightLogs, profile };
-  const isNew = !foodLogs.length && !workouts.length && !goals.length;
+  const isNew = !foodLogs.length && !workouts.length && !goals.length && !waterLogs.length;
 
   const lastSessionNames = lastWorkout ? [...new Set(lastWorkout.sets?.map((set) => exercises.find((item) => String(item.id) === String(set.exerciseId))?.name).filter(Boolean))] : [];
   const repeatable = yesterdayMeals.filter((group) => !meals.some((item) => item.meal === group.meal));
@@ -166,6 +260,20 @@ export default function Dashboard({ profile, foodLogs, dailyTotals, workouts, mu
         </div>
 
         <div className="layout-aside">
+          <WaterTracker
+            logs={waterLogs}
+            today={today}
+            targetMl={profile.waterTargetMl}
+            onAddWater={onAddWater}
+            onCustomWater={onCustomWater}
+            onEditGoal={onEditWaterGoal}
+            onDelete={onDeleteWater}
+          />
+          <MicronutrientTracker
+            totals={totals}
+            hasData={MICRONUTRIENTS.some(({ key }) => Number(totals.micronutrientCounts?.[key]) > 0 || Number(totals[key]) > 0)}
+            onAddFood={() => onSetView('logFood')}
+          />
           <section className="card panel stack">
             <CardTitle icon={Dumbbell} action={<button className="btn-ghost" type="button" onClick={onAddWorkout}><Plus size={16} /> Log</button>}>This week</CardTitle>
             <div className="stat-grid tight">

@@ -500,7 +500,7 @@ describe('lastTrainedByMuscle / neglectedMuscles', () => {
   });
 
   it('flags muscles untrained past the threshold, including ones never trained', () => {
-    const neglected = neglectedMuscles(['chest', 'lats', 'calves'], workouts, { today: dateKey(), days: 10 });
+    const neglected = neglectedMuscles(['chest', 'lats', 'calves'], workouts, { today: isoDaysAgo(0), days: 10 });
     const byMuscle = Object.fromEntries(neglected.map((row) => [row.muscle, row]));
     expect(byMuscle.chest.days).toBeGreaterThanOrEqual(10);
     expect(byMuscle.calves.days).toBeNull(); // never trained

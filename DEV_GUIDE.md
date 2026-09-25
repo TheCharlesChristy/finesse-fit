@@ -116,7 +116,7 @@ src/
 
 ### Schema
 
-The Dexie database is named `FinesseFit`, schema version 5 (v2 added `meals`, v3 added `templates`, v4 added `photos`, v5 added `tracks`, `routes` and `activeSession`).
+The Dexie database is named `FinesseFit`, schema version 6 (v2 added `meals`, v3 added `templates`, v4 added `photos`, v5 added `tracks`, `routes` and `activeSession`, v6 added `waterLogs`).
 
 | Table | Key | Indexed fields | Description |
 |---|---|---|---|
@@ -128,6 +128,7 @@ The Dexie database is named `FinesseFit`, schema version 5 (v2 added `meals`, v3
 | `workouts` | `++id` | `date` | Sessions containing an array of sets |
 | `muscleVolume` | `++id` | `muscle`, `weekKey` | Derived per-muscle weekly volume aggregates |
 | `bodyweightLogs` | `++id` | `date` | Bodyweight measurements |
+| `waterLogs` | `++id` | `date` | Water intake entries: `{ date, ml, loggedAt }`; exported and included in full reset |
 | `goals` | `++id` | `type` | Tracked goals |
 | `templates` | `++id` | `name` | Workout **plans**: `{ name, notes, blocks: Block[] }` (see "Workout plans & live sessions"). Legacy rows `{ name, sets }` are read through `normalizePlan()`. |
 | `routes` | `++id` | `name` | Planned routes: `{ name, waypoints: [[lat, lon]], path: [[lat, lon]], distance (m), followPaths }`. Routes saved from a recorded run have a `path` but no `waypoints`. |
@@ -306,7 +307,11 @@ A saved meal is a template, like a library food. `logMeal()` scales each item fr
 
 ### Nutrients
 
-`NUTRIENT_KEYS` in `utils.js` (calories, protein, carbs, fat, fibre, sugar, salt) drive `scaleNutrition`, `addTotals` and therefore `dailyTotals`. Only the four macros have targets; fibre/sugar/salt are informational. Older rows simply read as 0 for the new keys.
+`NUTRIENT_KEYS` in `utils.js` drive `scaleNutrition`, `addTotals` and `dailyTotals`: calories, protein, carbs, fat, fibre, sugar, salt, plus all 27 vitamins and minerals in `micronutrients.js`. The Today dashboard shows eight featured nutrients and puts the other 19 in an expandable list, all against EU adult food-label NRVs. These are general reference values, not personal targets. `knownMicronutrients` on a food log and `micronutrientCounts` on daily totals keep an unreported value distinct from a reported zero; the tracker displays a dash when no logged food supplied that nutrient. FoodModal supports manual values, Open Food Facts values are normalised to the app's units, and the label scanner can read micronutrient rows when OCR finds both a name and unit.
+
+### Water intake
+
+Water is stored separately from food logs in `waterLogs`; each entry records an amount in ml, its day and its logging time. The Today card offers 250 ml and 500 ml quick adds, a custom amount, and undoable deletion. A daily goal is optional and user-set (`profile.waterTargetMl`); no target is prefilled. Water logs are included in JSON backups and full reset.
 
 ### Estimates and suggestions (all pure, in `utils.js`)
 
@@ -441,7 +446,7 @@ Same pattern as Finesse's statement OCR, trimmed down: no pdf.js, no page render
 
 ### `labelParser.js` — pure, best-effort, never trusted directly
 
-Turns Tesseract's raw text into `{ per100, servingGrams, matched }`. It is deliberately a heuristic, not a real table-layout reader — flattened OCR text has no columns, only line order — so its result only ever seeds `FoodModal`'s draft via the `prefill` prop; every value still gets a human check before `addFood` is called. See CLAUDE.md's "Nutrition-label scanning" for the heuristics themselves (100g-column-first convention, sodium→salt conversion, why a missing nutrient is left out rather than zeroed) and `src/__tests__/labelParser.test.js` for the layouts it's tested against.
+Turns Tesseract's raw text into `{ per100, servingGrams, matched }`. It is deliberately a heuristic, not a real table-layout reader — flattened OCR text has no columns, only line order — so its result only ever seeds `FoodModal`'s draft via the `prefill` prop; every value still gets a human check before `addFood` is called. It reads vitamin and mineral amounts only when OCR finds a nutrient name and an explicit unit, converting mg and µg where needed. See CLAUDE.md's "Nutrition-label scanning" for the other heuristics (100g-column-first convention, sodium→salt conversion, why a missing nutrient is left out rather than zeroed).
 
 ### Privacy
 
@@ -455,7 +460,7 @@ All stateless and pure. Representative functions:
 
 | Function | Returns |
 |---|---|
-| `scaleNutrition(food, quantity, unit)` | `{ calories, protein, carbs, fat }` for the given amount |
+| `scaleNutrition(food, quantity, unit)` | Per-key food totals plus `knownMicronutrients` for the given amount |
 | `sumDay(logs)` | totals for a set of logs (used to rebuild a `dailyTotals` row if ever needed) |
 | `setVolume(set)` | working volume for one set (`reps × weight`) |
 | `attributeVolume(exercise, volume)` | `{ [muscle]: contribution }` with primary/secondary weighting |
@@ -574,7 +579,7 @@ A flat snapshot of all tables:
 
 ```json
 {
-  "version": 4,
+  "version": 5,
   "exportedAt": "2026-06-05T...",
   "profile": [ { ...profileRow } ],
   "foods": [ ... ],
@@ -588,7 +593,8 @@ A flat snapshot of all tables:
   "meals": [ ... ],
   "templates": [ ... ],
   "routes": [ ... ],
-  "tracks": [ ... ]
+  "tracks": [ ... ],
+  "waterLogs": [ ... ]
 }
 ```
 

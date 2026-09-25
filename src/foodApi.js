@@ -1,4 +1,5 @@
 import { addFood, findFoodByBarcode } from './db.js';
+import { convertNutrientAmount, MICRONUTRIENTS } from './micronutrients.js';
 
 const OFF_URL = 'https://world.openfoodfacts.org/api/v2/product';
 // The legacy search endpoint is the one Open Food Facts serves with CORS headers
@@ -17,6 +18,18 @@ const value = (product, keys) => {
 };
 
 const firstBrand = (brands) => (Array.isArray(brands) ? brands[0] : brands?.split(',')[0])?.trim() || null;
+
+function microValue(product, nutrient) {
+  const nutriments = product?.nutriments;
+  for (const offKey of nutrient.offKeys ?? []) {
+    const sourceKey = [`${offKey}_100g`, offKey].find((key) => {
+      const found = nutriments?.[key];
+      return found !== '' && found != null && Number.isFinite(Number(found));
+    });
+    if (sourceKey) return convertNutrientAmount(nutriments[sourceKey], nutriments[`${offKey}_unit`] ?? nutrient.unit, nutrient.unit, nutrient.key);
+  }
+  return null;
+}
 
 function normaliseProduct(code, product, source = 'scan') {
   const name = product.product_name || product.generic_name || `Barcode ${code}`;
@@ -39,7 +52,8 @@ function normaliseProduct(code, product, source = 'scan') {
       fat: value(product, ['fat_100g', 'fat']),
       fibre: value(product, ['fiber_100g', 'fiber']),
       sugar: value(product, ['sugars_100g', 'sugars']),
-      salt: value(product, ['salt_100g', 'salt'])
+      salt: value(product, ['salt_100g', 'salt']),
+      ...Object.fromEntries(MICRONUTRIENTS.map((nutrient) => [nutrient.key, microValue(product, nutrient)]).filter(([, amount]) => amount != null))
     }
   };
 }

@@ -14,6 +14,7 @@ import ExercisePicker from './ExercisePicker.jsx';
 import PriorityRanking from './PriorityRanking.jsx';
 import RestTimerBar from './RestTimer.jsx';
 import { useRestTimer } from './useRestTimer.js';
+import { MICRONUTRIENTS, MICRONUTRIENT_KEYS } from '../micronutrients.js';
 import { Field, IconButton, Modal, Segmented } from './ui.jsx';
 
 const MEALS = ['breakfast', 'lunch', 'dinner', 'snack'];
@@ -54,6 +55,17 @@ function Actions({ formId, onClose, onDelete, deleteLabel = 'Delete', saveDisabl
   );
 }
 
+const FEATURED_MICRONUTRIENTS = MICRONUTRIENTS.filter(({ featured }) => featured);
+const OTHER_MICRONUTRIENTS = MICRONUTRIENTS.filter(({ featured }) => !featured);
+
+function MicronutrientInputs({ nutrients, draft, onChange }) {
+  return nutrients.map(({ key, label, unit }) => (
+    <Field key={key} label={`${label} (${unit})`}>
+      <NumberInput value={draft[key]} onChange={(value) => onChange({ [key]: value })} placeholder="optional" />
+    </Field>
+  ));
+}
+
 export function FoodModal({ food, barcode, prefill, onClose, onSave }) {
   // `prefill` seeds a new food from a scanned label (see ScanLabelModal) —
   // ignored once `food` exists, since editing an existing food should never
@@ -67,13 +79,7 @@ export function FoodModal({ food, barcode, prefill, onClose, onSave }) {
     barcode: food?.barcode ?? barcode ?? '',
     servingLabel: initialServing.label ?? 'serving',
     servingGrams: text(initialServing.grams),
-    calories: text(per100Source?.calories ?? ''),
-    protein: text(per100Source?.protein ?? ''),
-    carbs: text(per100Source?.carbs ?? ''),
-    fat: text(per100Source?.fat ?? ''),
-    fibre: text(per100Source?.fibre ?? ''),
-    sugar: text(per100Source?.sugar ?? ''),
-    salt: text(per100Source?.salt ?? '')
+    ...Object.fromEntries(NUTRIENT_KEYS.map((key) => [key, text(per100Source?.[key] ?? '')]))
   });
   const set = (patch) => setDraft((current) => ({ ...current, ...patch }));
   const grams = num(draft.servingGrams);
@@ -89,7 +95,9 @@ export function FoodModal({ food, barcode, prefill, onClose, onSave }) {
       barcode: draft.barcode.trim() || null,
       source: food?.source ?? (draft.barcode.trim() ? 'scan' : 'custom'),
       servings: [{ label: draft.servingLabel.trim() || 'serving', grams }, { label: '100 g', grams: 100 }],
-      per100: Object.fromEntries(NUTRIENT_KEYS.map((key) => [key, num(draft[key])]))
+      per100: Object.fromEntries(NUTRIENT_KEYS
+        .filter((key) => !MICRONUTRIENT_KEYS.includes(key) || draft[key] !== '')
+        .map((key) => [key, num(draft[key])]))
     });
   };
 
@@ -122,6 +130,16 @@ export function FoodModal({ food, barcode, prefill, onClose, onSave }) {
           {EXTRA_NUTRIENTS.map(({ key, label }) => (
             <Field key={key} label={`${label} (g)`}><NumberInput value={draft[key]} onChange={(value) => set({ [key]: value })} placeholder="optional" /></Field>
           ))}
+        </div>
+        <div className="stack" style={{ gap: 'var(--gap-sm)' }}>
+          <strong>Micronutrients per 100 g</strong>
+          <div className="macro-inputs">
+            <MicronutrientInputs nutrients={FEATURED_MICRONUTRIENTS} draft={draft} onChange={set} />
+          </div>
+          <details className="stack" style={{ gap: 'var(--gap-sm)' }}>
+            <summary className="meal-heading">More vitamins and minerals ({OTHER_MICRONUTRIENTS.length})</summary>
+            <div className="macro-inputs"><MicronutrientInputs nutrients={OTHER_MICRONUTRIENTS} draft={draft} onChange={set} /></div>
+          </details>
         </div>
         {grams > 0 && <span className="muted">One {draft.servingLabel || 'serving'} ({round(grams, 0)} g) = {fmtCalories(perServing.calories)} · P {fmtMacro(perServing.protein)} · C {fmtMacro(perServing.carbs)} · F {fmtMacro(perServing.fat)}</span>}
       </div>
@@ -782,23 +800,41 @@ export function LogMealModal({ meal, onClose, onLog, onDelete }) {
 }
 
 export function QuickAddModal({ log, onClose, onSave, onDelete }) {
-  const [draft, setDraft] = useState(() => ({
-    name: log?.foodName ?? '',
-    date: log?.date ?? dateKey(),
-    mealType: log?.mealType ?? mealForTime(),
-    ...Object.fromEntries(['calories', 'protein', 'carbs', 'fat'].map((key) => [key, text(log?.computed?.[key] ?? '')]))
-  }));
+  const [draft, setDraft] = useState(() => {
+    const knownMicros = new Set(log?.computed?.knownMicronutrients
+      ?? MICRONUTRIENTS.filter(({ key }) => Number(log?.computed?.micronutrientCounts?.[key]) > 0 || Number(log?.computed?.[key]) > 0).map(({ key }) => key));
+    return {
+      name: log?.foodName ?? '',
+      date: log?.date ?? dateKey(),
+      mealType: log?.mealType ?? mealForTime(),
+      ...Object.fromEntries(['calories', 'protein', 'carbs', 'fat'].map((key) => [key, text(log?.computed?.[key] ?? '')])),
+      ...Object.fromEntries(MICRONUTRIENTS.map(({ key }) => [key, knownMicros.has(key) ? text(log?.computed?.[key] ?? '') : '']))
+    };
+  });
   const set = (patch) => setDraft((current) => ({ ...current, ...patch }));
   const calories = num(draft.calories);
   const macroCalories = num(draft.protein) * 4 + num(draft.carbs) * 4 + num(draft.fat) * 9;
   const save = () => {
     const kcal = calories || Math.round(macroCalories);
     if (kcal <= 0) return;
+    const previousComputed = { ...(log?.computed ?? {}) };
+    delete previousComputed.micronutrientCounts;
+    delete previousComputed.knownMicronutrients;
+    for (const key of MICRONUTRIENT_KEYS) delete previousComputed[key];
+    const knownMicronutrients = MICRONUTRIENTS.filter(({ key }) => draft[key] !== '').map(({ key }) => key);
     onSave({
       name: draft.name.trim() || 'Quick add',
       date: draft.date || dateKey(),
       mealType: draft.mealType,
-      computed: { ...(log?.computed ?? {}), calories: kcal, protein: num(draft.protein), carbs: num(draft.carbs), fat: num(draft.fat) }
+      computed: {
+        ...previousComputed,
+        calories: kcal,
+        protein: num(draft.protein),
+        carbs: num(draft.carbs),
+        fat: num(draft.fat),
+        ...Object.fromEntries(knownMicronutrients.map((key) => [key, num(draft[key])])),
+        ...(knownMicronutrients.length ? { knownMicronutrients } : {})
+      }
     });
   };
 
@@ -813,6 +849,16 @@ export function QuickAddModal({ log, onClose, onSave, onDelete }) {
         <Field label="Carbs (g)"><NumberInput value={draft.carbs} onChange={(value) => set({ carbs: value })} placeholder="0" /></Field>
         <Field label="Fat (g)"><NumberInput value={draft.fat} onChange={(value) => set({ fat: value })} placeholder="0" /></Field>
       </div>
+      <details className="stack" style={{ gap: 'var(--gap-sm)' }}>
+        <summary className="meal-heading">Add micronutrients (optional)</summary>
+        <div className="macro-inputs">
+          <MicronutrientInputs nutrients={FEATURED_MICRONUTRIENTS} draft={draft} onChange={set} />
+        </div>
+        <details className="stack" style={{ gap: 'var(--gap-sm)' }}>
+          <summary className="meal-heading">More vitamins and minerals ({OTHER_MICRONUTRIENTS.length})</summary>
+          <div className="macro-inputs"><MicronutrientInputs nutrients={OTHER_MICRONUTRIENTS} draft={draft} onChange={set} /></div>
+        </details>
+      </details>
       {!calories && macroCalories > 0 && <span className="muted">Calories will be estimated from macros: {Math.round(macroCalories)} kcal.</span>}
       <div className="form-grid">
         <Field label="Meal">
@@ -824,6 +870,49 @@ export function QuickAddModal({ log, onClose, onSave, onDelete }) {
         </Field>
         <Field label="Date"><DateInput value={draft.date} onChange={(date) => set({ date })} max={dateKey()} /></Field>
       </div>
+    </Modal>
+  );
+}
+
+export function WaterLogModal({ onClose, onSave }) {
+  const [amount, setAmount] = useState('250');
+  const ml = Number(amount);
+  const valid = Number.isFinite(ml) && ml > 0;
+  const save = () => {
+    if (valid) onSave(Math.round(ml));
+  };
+
+  return (
+    <Modal title="Log water" onClose={onClose} onSubmit={save}
+      footer={({ formId }) => <Actions formId={formId} onClose={onClose} saveDisabled={!valid} saveLabel="Log water" />}
+    >
+      <Field label="Amount (ml)" hint="Enter the amount of water you drank.">
+        <NumberInput value={amount} onChange={setAmount} step="1" min="1" placeholder="250" />
+      </Field>
+      <div className="chip-row" aria-label="Common amounts">
+        {[150, 250, 500, 750].map((value) => (
+          <button key={value} type="button" className={`chip ${Number(amount) === value ? 'active' : ''}`} aria-pressed={Number(amount) === value} onClick={() => setAmount(String(value))}>{value} ml</button>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+export function WaterGoalModal({ targetMl, onClose, onSave }) {
+  const [amount, setAmount] = useState(targetMl == null ? '' : String(targetMl));
+  const ml = amount.trim() === '' ? null : Number(amount);
+  const valid = ml === null || (Number.isFinite(ml) && ml > 0);
+  const save = () => {
+    if (valid) onSave(ml === null ? null : Math.round(ml));
+  };
+
+  return (
+    <Modal title="Daily water goal" onClose={onClose} onSubmit={save}
+      footer={({ formId }) => <Actions formId={formId} onClose={onClose} saveDisabled={!valid} saveLabel="Save goal" />}
+    >
+      <Field label="Your target (ml)" hint="Choose your own daily target. Leave it blank to track intake without a goal.">
+        <NumberInput value={amount} onChange={setAmount} step="1" min="1" placeholder="Optional" />
+      </Field>
     </Modal>
   );
 }

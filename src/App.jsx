@@ -4,7 +4,7 @@ import { Apple, Dumbbell, Home, LoaderCircle, Settings as SettingsIcon, Trophy }
 import ActivityModal from './components/ActivityModal.jsx';
 import AppShell from './components/AppShell.jsx';
 import BarcodeScanner from './components/BarcodeScanner.jsx';
-import { BodyweightModal, ExerciseModal, FoodModal, GoalModal, LogFoodModal, LogMealModal, ProfileModal, QuickAddModal, WorkoutModal } from './components/Modals.jsx';
+import { BodyweightModal, ExerciseModal, FoodModal, GoalModal, LogFoodModal, LogMealModal, ProfileModal, QuickAddModal, WaterGoalModal, WaterLogModal, WorkoutModal } from './components/Modals.jsx';
 import PlanModal from './components/PlanModal.jsx';
 import RoutePlannerModal from './components/RoutePlannerModal.jsx';
 import ScanLabelModal from './components/ScanLabelModal.jsx';
@@ -107,6 +107,7 @@ export default function App() {
   const workouts = useLiveQuery(data.getWorkouts, [], []);
   const muscleVolume = useLiveQuery(data.getMuscleVolume, [], []);
   const bodyweightLogs = useLiveQuery(data.getBodyweightLogs, [], []);
+  const waterLogs = useLiveQuery(data.getWaterLogs, [], []);
   const progressPhotos = useLiveQuery(data.getProgressPhotos, [], []);
   const goals = useLiveQuery(data.getGoals, [], []);
   const meals = useLiveQuery(data.getMeals, [], []);
@@ -254,6 +255,16 @@ export default function App() {
     else await data.addQuickLog(entry);
     closeModal();
   }, modal?.log?.id ? 'Log updated' : `Logged ${entry.computed.calories} kcal`);
+
+  const addWater = (ml) => run(() => data.addWaterLog({ date: today, ml }), `Added ${ml} ml water`);
+  const saveWaterLog = (ml) => run(async () => {
+    await data.addWaterLog({ date: today, ml });
+    closeModal();
+  }, `Logged ${ml} ml water`);
+  const saveWaterGoal = (waterTargetMl) => run(async () => {
+    await data.updateProfile({ waterTargetMl });
+    closeModal();
+  }, waterTargetMl == null ? 'Water goal removed' : 'Water goal saved');
 
   const saveWorkout = async (workout) => {
     const editingId = modal?.workout?.id;
@@ -556,7 +567,7 @@ export default function App() {
 
   const editLog = (log) => setModal(log.quick ? { type: 'quickAdd', log } : { type: 'logFood', log, food: foods.find((food) => food.id === log.foodId) });
 
-  const viewProps = { profile, foods, foodLogs, dailyTotals, workouts, muscleVolume, bodyweightLogs, goals, exercises, meals, today };
+  const viewProps = { profile, foods, foodLogs, dailyTotals, workouts, muscleVolume, bodyweightLogs, waterLogs, goals, exercises, meals, today };
 
   return (
     <AppShell
@@ -582,6 +593,10 @@ export default function App() {
             onExport={handleExport}
             onSnoozeBackup={() => data.updateProfile({ backupSnoozedUntil: snoozeUntil(7) })}
             onDismissReview={(week) => data.updateProfile({ reviewDismissedWeek: week })}
+            onAddWater={addWater}
+            onCustomWater={() => setModal({ type: 'waterLog' })}
+            onEditWaterGoal={() => setModal({ type: 'waterGoal' })}
+            onDeleteWater={(id) => removeWithUndo(() => data.deleteWaterLog(id), (row) => data.restoreRow('waterLogs', row), 'Water entry deleted')}
           />
         )}
         {view === 'logFood' && (
@@ -682,6 +697,8 @@ export default function App() {
       {modal?.type === 'goal' && <GoalModal goal={modal.goal} exercises={exercises} units={profile.units} latestBodyweight={latestBodyweight} onClose={closeModal} onSave={saveGoal} />}
       {modal?.type === 'bodyweight' && <BodyweightModal units={profile.units} latest={latestBodyweight} onClose={closeModal} onSave={(row) => run(async () => { await data.addBodyweightLog(row); closeModal(); }, 'Bodyweight logged')} />}
       {modal?.type === 'quickAdd' && <QuickAddModal log={modal.log} onClose={closeModal} onSave={saveQuickLog} onDelete={deleteFoodLog} />}
+      {modal?.type === 'waterLog' && <WaterLogModal onClose={closeModal} onSave={saveWaterLog} />}
+      {modal?.type === 'waterGoal' && <WaterGoalModal targetMl={profile.waterTargetMl} onClose={closeModal} onSave={saveWaterGoal} />}
       {modal?.type === 'logMeal' && <LogMealModal meal={modal.meal} onClose={closeModal} onLog={logMeal} onDelete={deleteMeal} />}
       {modal?.type === 'plan' && <PlanModal plan={modal.plan} exercises={exercises} routes={routes} units={profile.units} onClose={(dirty) => closeWithConfirm(dirty)} onSave={savePlan} onDelete={deletePlan} />}
       {modal?.type === 'route' && (

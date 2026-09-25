@@ -1,18 +1,21 @@
 import { addDays, addWeeks, format, getISOWeek, getISOWeekYear, isValid, parseISO, startOfISOWeek } from 'date-fns';
 import { fmtClock, fmtDistance, fmtPace, paceOf } from './geo.js';
+import { formatNutrientAmount, MICRONUTRIENTS, MICRONUTRIENT_KEYS } from './micronutrients.js';
 
 export const SECONDARY_WEIGHT = 0.5;
 export const KG_TO_LB = 2.2046226218;
 export const CM_TO_IN = 0.3937007874;
-// Macros have targets; fibre/sugar/salt are tracked for information only.
-export const NUTRIENT_KEYS = ['calories', 'protein', 'carbs', 'fat', 'fibre', 'sugar', 'salt'];
+// Macros have profile targets; fibre/sugar/salt and micronutrients are also
+// carried through food logs and daily totals for informational tracking.
+export const LABEL_NUTRIENT_KEYS = ['calories', 'protein', 'carbs', 'fat', 'fibre', 'sugar', 'salt'];
+export const NUTRIENT_KEYS = [...LABEL_NUTRIENT_KEYS, ...MICRONUTRIENT_KEYS];
 export const EXTRA_NUTRIENTS = [
   { key: 'fibre', label: 'Fibre' },
   { key: 'sugar', label: 'Sugar' },
   { key: 'salt', label: 'Salt' }
 ];
-const NUTRIENT_PLACES = { calories: 0, salt: 2 };
-export const EMPTY_TOTALS = Object.fromEntries(NUTRIENT_KEYS.map((key) => [key, 0]));
+const NUTRIENT_PLACES = { calories: 0, salt: 2, vitaminD: 2, vitaminB12: 2 };
+export const EMPTY_TOTALS = Object.fromEntries(LABEL_NUTRIENT_KEYS.map((key) => [key, 0]));
 // Only read for profiles saved before body-composition targets existed.
 export const DEFAULT_GOAL_MIX = { fatLoss: 45, muscleGain: 55, performance: 45, health: 50 };
 // No current body-fat reading is stored, so a body-fat target is judged against
@@ -117,11 +120,30 @@ export function scaleNutrition(food, quantity, unit) {
   const serving = food.servings?.[0] ?? { grams: 100 };
   const grams = unit === 'serving' ? qty * number(serving.grams, 100) : qty;
   const factor = grams / 100;
-  return Object.fromEntries(NUTRIENT_KEYS.map((key) => [key, round(number(food.per100[key]) * factor, NUTRIENT_PLACES[key] ?? 1)]));
+  const totals = Object.fromEntries(LABEL_NUTRIENT_KEYS.map((key) => [key, round(number(food.per100[key]) * factor, NUTRIENT_PLACES[key] ?? 1)]));
+  const knownMicronutrients = MICRONUTRIENT_KEYS.filter((key) => food.per100[key] != null);
+  if (!knownMicronutrients.length) return totals;
+  return {
+    ...totals,
+    ...Object.fromEntries(knownMicronutrients.map((key) => [key, round(number(food.per100[key]) * factor, NUTRIENT_PLACES[key] ?? 1)])),
+    knownMicronutrients
+  };
 }
 
 export function addTotals(a = EMPTY_TOTALS, b = EMPTY_TOTALS, sign = 1) {
-  return Object.fromEntries(NUTRIENT_KEYS.map((key) => [key, Math.max(0, round(number(a?.[key]) + number(b?.[key]) * sign, NUTRIENT_PLACES[key] ?? 1))]));
+  const hasMicronutrients = MICRONUTRIENT_KEYS.some((key) => a?.[key] != null || b?.[key] != null)
+    || Object.keys(a?.micronutrientCounts ?? {}).length > 0
+    || Object.keys(b?.micronutrientCounts ?? {}).length > 0
+    || Boolean(b?.knownMicronutrients?.length);
+  const keys = hasMicronutrients ? NUTRIENT_KEYS : LABEL_NUTRIENT_KEYS;
+  const totals = Object.fromEntries(keys.map((key) => [key, Math.max(0, round(number(a?.[key]) + number(b?.[key]) * sign, NUTRIENT_PLACES[key] ?? 1))]));
+  if (!hasMicronutrients) return totals;
+  const micronutrientCounts = { ...(a?.micronutrientCounts ?? {}) };
+  const addedCounts = b?.micronutrientCounts ?? Object.fromEntries((b?.knownMicronutrients ?? []).map((key) => [key, 1]));
+  for (const key of new Set([...Object.keys(micronutrientCounts), ...Object.keys(addedCounts)])) {
+    micronutrientCounts[key] = Math.max(0, number(micronutrientCounts[key]) + number(addedCounts[key]) * sign);
+  }
+  return { ...totals, micronutrientCounts };
 }
 
 // Bodyweight movements (pull-ups, dips…) load the body plus any added weight;
@@ -751,6 +773,10 @@ export function buildAiContext({ today, profile, totals = {}, meals = [], todayW
   const remaining = Math.round(number(targets.calories) - number(totals.calories));
   lines.push(`${fmtCalories(totals.calories ?? 0)} logged (${remaining >= 0 ? `${remaining.toLocaleString()} kcal remaining` : `${Math.abs(remaining).toLocaleString()} kcal over target`})`);
   lines.push(`Protein ${fmtMacro(totals.protein ?? 0)} / ${fmtMacro(targets.protein)} · Carbs ${fmtMacro(totals.carbs ?? 0)} / ${fmtMacro(targets.carbs)} · Fat ${fmtMacro(totals.fat ?? 0)} / ${fmtMacro(targets.fat)}`);
+  lines.push(`Micronutrients (reported food data only): ${MICRONUTRIENTS.map(({ key, label, unit }) => {
+    const known = number(totals.micronutrientCounts?.[key]) > 0 || number(totals[key]) > 0;
+    return `${label} ${known ? `${formatNutrientAmount(totals[key])} ${unit}` : '—'}`;
+  }).join(' · ')}; — means no value was supplied.`);
   if (meals.length) {
     lines.push('Meals:');
     for (const group of meals) {
