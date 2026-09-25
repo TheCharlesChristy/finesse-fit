@@ -1465,6 +1465,41 @@ details > summary::-webkit-details-marker { color: var(--text-muted); }
 .bodyfat-check { flex: none; color: var(--accent); }
 .form-note { font-size: 0.86rem; line-height: 1.45; }
 
+/* ── Taste profile: food swiper ──────────────────────────────────────
+   A stacked card deck (FoodSwiper.jsx) rather than a text list: drag or tap
+   the buttons below to sort each food into loved/disliked/skipped. */
+.swipe-progress { display: flex; align-items: center; gap: 10px; font-size: 0.8rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.swipe-progress .progress-track { flex: 1; }
+.swipe-stack { position: relative; height: 220px; margin: 6px 0; touch-action: none; }
+.swipe-card { position: absolute; inset: 0; display: grid; place-items: center; gap: 10px; border-radius: var(--radius-lg); background: var(--card-bg); border: 1px solid var(--line); text-align: center; padding: 20px; user-select: none; }
+.swipe-card.peek-1 { transform: scale(0.96) translateY(10px); opacity: 0.7; z-index: 1; }
+.swipe-card.peek-2 { transform: scale(0.92) translateY(18px); opacity: 0.4; z-index: 0; }
+.swipe-card.top { z-index: 2; cursor: grab; box-shadow: var(--shadow); touch-action: none; transition: transform var(--t-slow) var(--ease), opacity var(--t-slow) var(--ease); }
+.swipe-card.top:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.swipe-card.top.dragging { transition: none; cursor: grabbing; }
+.swipe-card.top.exit-like { transform: translate(160%, -16px) rotate(18deg); opacity: 0; }
+.swipe-card.top.exit-dislike { transform: translate(-160%, -16px) rotate(-18deg); opacity: 0; }
+.swipe-card.top.exit-skip { transform: translateY(-140%); opacity: 0; }
+.swipe-card-icon { width: 52px; height: 52px; border-radius: var(--radius-full); display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-ink); }
+.swipe-card-icon svg { width: 26px; height: 26px; }
+.swipe-card-name { font-size: 1.4rem; }
+.swipe-badge { position: absolute; top: 16px; padding: 4px 14px; border-radius: var(--radius-full); font-weight: 800; font-size: 0.78rem; letter-spacing: 0.04em; text-transform: uppercase; border: 2px solid currentColor; }
+.swipe-badge.like { right: 16px; color: var(--good); transform: rotate(-8deg); }
+.swipe-badge.dislike { left: 16px; color: var(--danger); transform: rotate(8deg); }
+.swipe-actions { display: flex; justify-content: center; align-items: center; gap: 18px; }
+.swipe-action { width: 54px; min-height: 54px; border-radius: var(--radius-full); }
+.swipe-action.dislike { color: var(--danger); }
+.swipe-action.dislike:hover:not(:disabled) { background: var(--danger-soft); border-color: transparent; }
+.swipe-action.like { color: var(--good); }
+.swipe-action.like:hover:not(:disabled) { background: var(--good-soft); border-color: transparent; }
+.swipe-done { display: grid; place-items: center; gap: 6px; height: 220px; text-align: center; }
+.taste-tag-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.taste-tag { display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px 4px 12px; border-radius: var(--radius-full); font-size: 0.82rem; font-weight: 600; }
+.taste-tag.good { color: var(--good); background: var(--good-soft); }
+.taste-tag.danger { color: var(--danger); background: var(--danger-soft); }
+.taste-tag button { display: grid; place-items: center; width: 18px; height: 18px; border-radius: var(--radius-full); background: transparent; border: none; color: inherit; cursor: pointer; }
+.taste-tag button:hover { background: color-mix(in srgb, currentColor 22%, transparent); }
+
 /* ── Muscle map ────────────────────────────────────────────────────────
    The heat ramp is `--heat-0…3`, derived from the palette, so the map is
    readable in every theme without a per-palette rule of its own. */

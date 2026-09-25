@@ -58,6 +58,43 @@ export const COMMON_ALLERGENS = ['Peanuts', 'Tree nuts', 'Dairy', 'Eggs', 'Glute
 export const COMMON_CUISINES = ['Italian', 'Mexican', 'Indian', 'Chinese', 'Japanese', 'Thai', 'Mediterranean', 'American', 'French', 'Middle Eastern', 'Korean', 'Vietnamese'];
 export const DEFAULT_TASTE_PROFILE = { dietaryStyle: null, allergies: [], cuisines: [], favoriteFoods: [], dislikedFoods: [], notes: '' };
 
+// The swipe deck (FoodSwiper.jsx) sorts these into favoriteFoods/dislikedFoods
+// as the user swipes; `category` only picks the card's icon.
+export const TASTE_SWIPE_FOODS = [
+  { name: 'Chicken breast', category: 'protein' },
+  { name: 'Salmon', category: 'protein' },
+  { name: 'Steak', category: 'protein' },
+  { name: 'Shrimp', category: 'protein' },
+  { name: 'Tofu', category: 'protein' },
+  { name: 'Eggs', category: 'protein' },
+  { name: 'Greek yoghurt', category: 'dairy' },
+  { name: 'Cheese', category: 'dairy' },
+  { name: 'Milk', category: 'dairy' },
+  { name: 'Rice', category: 'carb' },
+  { name: 'Pasta', category: 'carb' },
+  { name: 'Sweet potato', category: 'carb' },
+  { name: 'Oats', category: 'carb' },
+  { name: 'Quinoa', category: 'carb' },
+  { name: 'Bread', category: 'carb' },
+  { name: 'Broccoli', category: 'veg' },
+  { name: 'Spinach', category: 'veg' },
+  { name: 'Mushrooms', category: 'veg' },
+  { name: 'Brussels sprouts', category: 'veg' },
+  { name: 'Bell peppers', category: 'veg' },
+  { name: 'Avocado', category: 'veg' },
+  { name: 'Onions', category: 'veg' },
+  { name: 'Banana', category: 'fruit' },
+  { name: 'Berries', category: 'fruit' },
+  { name: 'Apples', category: 'fruit' },
+  { name: 'Mango', category: 'fruit' },
+  { name: 'Dark chocolate', category: 'sweet' },
+  { name: 'Ice cream', category: 'sweet' },
+  { name: 'Peanut butter', category: 'other' },
+  { name: 'Olives', category: 'other' },
+  { name: 'Hot sauce', category: 'other' },
+  { name: 'Coffee', category: 'other' }
+];
+
 const number = (value, fallback = 0) => {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;

@@ -1,16 +1,17 @@
 import { useState } from 'react';
-import { Check, Copy, History, PersonStanding, Plus, RotateCcw, Save, Share2, Trash2, TrendingUp, Trophy } from 'lucide-react';
+import { Check, Copy, Heart, History, PersonStanding, Plus, RotateCcw, Save, Share2, Trash2, TrendingUp, Trophy, X } from 'lucide-react';
 import { EXERCISE_CATEGORIES, EXERCISE_EQUIPMENT, MUSCLES } from '../data/exercise-library/index.js';
 import { canShareText, copyText, SHARE_COPIED, shareText } from '../share.js';
 import {
-  ageFromBirthYear, applyProgression, bestE1rmByExercise, calculateNutritionTargets, COMMON_ALLERGENS, COMMON_CUISINES, compositionGoal, dateKey, DIETARY_STYLES, estimateMaintenanceCalories, estimateOneRepMax, EXTRA_NUTRIENTS,
+  ageFromBirthYear, applyProgression, bestE1rmByExercise, calculateNutritionTargets, COMMON_ALLERGENS, COMMON_CUISINES, compositionGoal, dateKey, dietaryStyleLabel, DIETARY_STYLES, estimateMaintenanceCalories, estimateOneRepMax, EXTRA_NUTRIENTS,
   fmtCalories, fmtDate, fmtMacro, fmtWeight, formatTagList, fromDisplayHeight, fromDisplayWeight, fromFeetInches, lastSessionFor, mealForTime, mealLabel,
   muscleLabel, normalizeBodyCompositionTargets, normalizePriorities, normalizeTasteProfile, normalizeTrainingDays, NUTRIENT_KEYS, NUTRITION_WINDOW_DAYS, parseTagList, round, scaleNutrition, servingLabel, suggestProgression,
-  sumComputed, toDisplayHeight, toDisplayWeight, toFeetInches, TRAINING_DAYS
+  sumComputed, TASTE_SWIPE_FOODS, toDisplayHeight, toDisplayWeight, toFeetInches, TRAINING_DAYS
 } from '../utils.js';
 import BodyFatReference from './BodyFatReference.jsx';
 import DateInput from './DateInput.jsx';
 import ExercisePicker from './ExercisePicker.jsx';
+import FoodSwiper from './FoodSwiper.jsx';
 import PriorityRanking from './PriorityRanking.jsx';
 import RestTimerBar from './RestTimer.jsx';
 import { useRestTimer } from './useRestTimer.js';
@@ -739,14 +740,29 @@ export function ProfileModal({ profile, onboarding = false, onClose, onSave }) {
   );
 }
 
+const TASTE_STEP_TITLES = { style: 'Taste profile', swipe: 'Swipe on foods', review: 'Review & save' };
+const TASTE_STEP_SUBTITLES = {
+  style: 'Shared with the AI context export, so meal advice can factor in what you actually eat.',
+  swipe: 'Drag a card, or use the buttons — heart to love it, X for not for me, skip if you’re not fussed.',
+  review: 'Tap × to drop anything that slipped in by mistake.'
+};
+
 export function TasteProfileModal({ tasteProfile, onClose, onSave }) {
   const initial = normalizeTasteProfile(tasteProfile);
+  const [step, setStep] = useState('style');
   const [dietaryStyle, setDietaryStyle] = useState(initial.dietaryStyle);
   const [allergyText, setAllergyText] = useState(formatTagList(initial.allergies));
   const [cuisineText, setCuisineText] = useState(formatTagList(initial.cuisines));
-  const [favoriteText, setFavoriteText] = useState(formatTagList(initial.favoriteFoods));
-  const [dislikeText, setDislikeText] = useState(formatTagList(initial.dislikedFoods));
   const [notes, setNotes] = useState(initial.notes);
+  const [loved, setLoved] = useState(new Set(initial.favoriteFoods));
+  const [disliked, setDisliked] = useState(new Set(initial.dislikedFoods));
+  const [customText, setCustomText] = useState('');
+  // Built once from the profile as it opened, so cards already decided last
+  // time aren't asked again — but the deck itself never reshuffles mid-swipe.
+  const [deck] = useState(() => {
+    const decided = new Set([...initial.favoriteFoods, ...initial.dislikedFoods].map((tag) => tag.toLowerCase()));
+    return TASTE_SWIPE_FOODS.filter((item) => !decided.has(item.name.toLowerCase()));
+  });
 
   const toggleTag = (current, setter, value) => {
     const tags = parseTagList(current);
@@ -754,71 +770,154 @@ export function TasteProfileModal({ tasteProfile, onClose, onSave }) {
     setter(formatTagList(has ? tags.filter((tag) => tag.toLowerCase() !== value.toLowerCase()) : [...tags, value]));
   };
 
+  const decideFood = (item, direction) => {
+    if (direction === 'like') setLoved((current) => new Set(current).add(item.name));
+    else if (direction === 'dislike') setDisliked((current) => new Set(current).add(item.name));
+  };
+  const addCustom = (side) => {
+    const value = customText.trim();
+    if (!value) return;
+    (side === 'like' ? setLoved : setDisliked)((current) => new Set(current).add(value));
+    setCustomText('');
+  };
+  const removeLoved = (name) => setLoved((current) => { const next = new Set(current); next.delete(name); return next; });
+  const removeDisliked = (name) => setDisliked((current) => { const next = new Set(current); next.delete(name); return next; });
+
   const save = () => onSave({
     dietaryStyle,
     allergies: parseTagList(allergyText),
     cuisines: parseTagList(cuisineText),
-    favoriteFoods: parseTagList(favoriteText),
-    dislikedFoods: parseTagList(dislikeText),
+    favoriteFoods: [...loved],
+    dislikedFoods: [...disliked],
     notes: notes.trim()
   });
 
   return (
     <Modal
-      title="Taste profile"
-      subtitle="Shared with the AI context export, so meal advice can factor in what you actually eat."
+      title={TASTE_STEP_TITLES[step]}
+      subtitle={TASTE_STEP_SUBTITLES[step]}
       onClose={onClose}
-      onSubmit={save}
+      onSubmit={() => { if (step === 'review') save(); }}
       size="lg"
-      footer={({ formId }) => <Actions formId={formId} onClose={onClose} />}
+      footer={({ formId }) => (
+        <>
+          {step === 'style'
+            ? <button className="btn-secondary" type="button" onClick={onClose}>Cancel</button>
+            : <button className="btn-secondary" type="button" onClick={() => setStep(step === 'review' ? 'swipe' : 'style')}>Back</button>}
+          <span className="spacer" />
+          {step === 'style' && <button className="btn-primary" type="button" onClick={() => setStep('swipe')}>Swipe foods →</button>}
+          {step === 'swipe' && <button className="btn-primary" type="button" onClick={() => setStep('review')}>Review →</button>}
+          {step === 'review' && <button className="btn-primary" type="submit" form={formId}><Save size={18} aria-hidden="true" /> Save</button>}
+        </>
+      )}
     >
-      <Field label="Dietary style">
-        <div className="chip-row" role="radiogroup" aria-label="Dietary style">
-          <button type="button" role="radio" aria-checked={dietaryStyle == null} className={`chip ${dietaryStyle == null ? 'active' : ''}`} onClick={() => setDietaryStyle(null)}>No restriction</button>
-          {DIETARY_STYLES.map((style) => (
-            <button key={style.id} type="button" role="radio" aria-checked={dietaryStyle === style.id} className={`chip ${dietaryStyle === style.id ? 'active' : ''}`} onClick={() => setDietaryStyle(style.id)}>{style.label}</button>
-          ))}
-        </div>
-      </Field>
+      {step === 'style' && (
+        <>
+          <Field label="Dietary style">
+            <div className="chip-row" role="radiogroup" aria-label="Dietary style">
+              <button type="button" role="radio" aria-checked={dietaryStyle == null} className={`chip ${dietaryStyle == null ? 'active' : ''}`} onClick={() => setDietaryStyle(null)}>No restriction</button>
+              {DIETARY_STYLES.map((style) => (
+                <button key={style.id} type="button" role="radio" aria-checked={dietaryStyle === style.id} className={`chip ${dietaryStyle === style.id ? 'active' : ''}`} onClick={() => setDietaryStyle(style.id)}>{style.label}</button>
+              ))}
+            </div>
+          </Field>
 
-      <Field label="Allergies & intolerances">
-        <div className="chip-row">
-          {COMMON_ALLERGENS.map((allergen) => {
-            const active = parseTagList(allergyText).some((tag) => tag.toLowerCase() === allergen.toLowerCase());
-            return <button key={allergen} type="button" aria-pressed={active} className={`chip ${active ? 'active' : ''}`} onClick={() => toggleTag(allergyText, setAllergyText, allergen)}>{allergen}</button>;
-          })}
-        </div>
-        <input className="input" value={allergyText} onChange={(e) => setAllergyText(e.target.value)} placeholder="Anything else, comma separated" aria-label="Other allergies or intolerances" />
-      </Field>
+          <Field label="Allergies & intolerances">
+            <div className="chip-row">
+              {COMMON_ALLERGENS.map((allergen) => {
+                const active = parseTagList(allergyText).some((tag) => tag.toLowerCase() === allergen.toLowerCase());
+                return <button key={allergen} type="button" aria-pressed={active} className={`chip ${active ? 'active' : ''}`} onClick={() => toggleTag(allergyText, setAllergyText, allergen)}>{allergen}</button>;
+              })}
+            </div>
+            <input className="input" value={allergyText} onChange={(e) => setAllergyText(e.target.value)} placeholder="Anything else, comma separated" aria-label="Other allergies or intolerances" />
+          </Field>
 
-      <Field label="Preferred cuisines">
-        <div className="chip-row">
-          {COMMON_CUISINES.map((cuisine) => {
-            const active = parseTagList(cuisineText).some((tag) => tag.toLowerCase() === cuisine.toLowerCase());
-            return <button key={cuisine} type="button" aria-pressed={active} className={`chip ${active ? 'active' : ''}`} onClick={() => toggleTag(cuisineText, setCuisineText, cuisine)}>{cuisine}</button>;
-          })}
-        </div>
-        <input className="input" value={cuisineText} onChange={(e) => setCuisineText(e.target.value)} placeholder="Anything else, comma separated" aria-label="Other preferred cuisines" />
-      </Field>
+          <Field label="Preferred cuisines">
+            <div className="chip-row">
+              {COMMON_CUISINES.map((cuisine) => {
+                const active = parseTagList(cuisineText).some((tag) => tag.toLowerCase() === cuisine.toLowerCase());
+                return <button key={cuisine} type="button" aria-pressed={active} className={`chip ${active ? 'active' : ''}`} onClick={() => toggleTag(cuisineText, setCuisineText, cuisine)}>{cuisine}</button>;
+              })}
+            </div>
+            <input className="input" value={cuisineText} onChange={(e) => setCuisineText(e.target.value)} placeholder="Anything else, comma separated" aria-label="Other preferred cuisines" />
+          </Field>
+        </>
+      )}
 
-      <div className="form-grid">
-        <Field label="Favourite foods">
-          <input className="input" value={favoriteText} onChange={(e) => setFavoriteText(e.target.value)} placeholder="e.g. salmon, sweet potato, dark chocolate" />
-        </Field>
-        <Field label="Foods you dislike">
-          <input className="input" value={dislikeText} onChange={(e) => setDislikeText(e.target.value)} placeholder="e.g. mushrooms, olives" />
-        </Field>
-      </div>
+      {step === 'swipe' && (
+        <>
+          <div className="card panel stack">
+            <FoodSwiper items={deck} onDecide={decideFood} />
+          </div>
+          <div className="card panel stack">
+            <strong>Not in the deck?</strong>
+            <div className="row" style={{ flexWrap: 'nowrap' }}>
+              <input
+                className="input"
+                value={customText}
+                onChange={(e) => setCustomText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustom('like'); } }}
+                placeholder="Add any other food"
+                style={{ flex: 1 }}
+                aria-label="Add another food"
+              />
+              <IconButton label="Add as loved" className="btn-icon swipe-action like" onClick={() => addCustom('like')}><Heart aria-hidden="true" /></IconButton>
+              <IconButton label="Add as disliked" className="btn-icon swipe-action dislike" onClick={() => addCustom('dislike')}><X aria-hidden="true" /></IconButton>
+            </div>
+          </div>
+        </>
+      )}
 
-      <Field label="Anything else">
-        <textarea
-          className="input"
-          style={{ minHeight: 90, resize: 'vertical' }}
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Spice tolerance, meal timing, cooking constraints, budget…"
-        />
-      </Field>
+      {step === 'review' && (
+        <>
+          <div className="card panel stack">
+            <strong>Your preferences</strong>
+            <span className="muted">
+              {dietaryStyle ? dietaryStyleLabel(dietaryStyle) : 'No dietary restriction'}
+              {parseTagList(allergyText).length > 0 ? ` · Allergic to ${parseTagList(allergyText).join(', ')}` : ''}
+            </span>
+            {parseTagList(cuisineText).length > 0 && <span className="muted">Prefers {parseTagList(cuisineText).join(', ')}</span>}
+          </div>
+
+          <div className="card panel stack">
+            <div className="split"><strong>Loved</strong><span className="muted">{loved.size}</span></div>
+            {loved.size > 0 ? (
+              <div className="taste-tag-row">
+                {[...loved].map((name) => (
+                  <span key={name} className="taste-tag good">
+                    {name}
+                    <button type="button" aria-label={`Remove ${name} from loved foods`} onClick={() => removeLoved(name)}><X size={12} aria-hidden="true" /></button>
+                  </span>
+                ))}
+              </div>
+            ) : <span className="muted">Nothing yet.</span>}
+          </div>
+
+          <div className="card panel stack">
+            <div className="split"><strong>Disliked</strong><span className="muted">{disliked.size}</span></div>
+            {disliked.size > 0 ? (
+              <div className="taste-tag-row">
+                {[...disliked].map((name) => (
+                  <span key={name} className="taste-tag danger">
+                    {name}
+                    <button type="button" aria-label={`Remove ${name} from disliked foods`} onClick={() => removeDisliked(name)}><X size={12} aria-hidden="true" /></button>
+                  </span>
+                ))}
+              </div>
+            ) : <span className="muted">Nothing yet.</span>}
+          </div>
+
+          <Field label="Anything else">
+            <textarea
+              className="input"
+              style={{ minHeight: 90, resize: 'vertical' }}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Spice tolerance, meal timing, cooking constraints, budget…"
+            />
+          </Field>
+        </>
+      )}
     </Modal>
   );
 }
