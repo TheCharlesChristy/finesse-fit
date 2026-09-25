@@ -190,9 +190,10 @@ export default function Settings({
 
           <Card title="Privacy" icon={ShieldCheck}>
             <p className="field-hint">
-              Everything you log is stored in this browser and never sent anywhere. The two exceptions
-              are looking a barcode up on Open Food Facts and searching it by name, both of which send
-              only the barcode or the words you typed.
+              Everything you log is stored in this browser and never sent anywhere. The exceptions are
+              looking a barcode up on Open Food Facts, searching it by name (only the barcode or the
+              words you typed are sent), and swiping recipes for your taste profile (fetches one recipe
+              at a time — only the name of one you swipe is ever saved, never the photo).
             </p>
             <p className="field-hint">Label scanning runs entirely on this device — the photo and its pixels never leave it.</p>
           </Card>

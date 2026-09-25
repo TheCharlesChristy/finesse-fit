@@ -18,8 +18,9 @@ It is the fitness sibling of the **Finesse** personal-finance app and shares its
 2. **Name search** (`foodApi.js`, Open Food Facts) — only when the user explicitly taps "Search Open Food Facts" (or presses Enter in the search box); never while typing. Results are held in memory for the session; the product the user picks is saved to `foods` and is offline from then on.
 3. **Map tiles** (`mapTiles.js`, loaded as images by `components/RouteMap.jsx` via Leaflet) — OpenStreetMap tile PNGs for whatever area a visible map shows. They reveal the tile coordinates being viewed (roughly, the area) and the IP address; never GPS fixes, tracks or routes. The service worker caches only tiles actually viewed — never bulk pre-fetch (OSM's usage policy forbids it), and keep the visible attribution.
 4. **Route snapping** (`routingApi.js`, FOSSGIS OSRM at `routing.openstreetmap.de`) — only when the user taps the route-planner map with "Follow paths" on: one request per new leg, sequential, sending just that leg's two coordinates. Never on a timer or in a loop.
+5. **Recipe discovery** (`recipeApi.js`, TheMealDB's free test API) — only while the taste-profile swipe deck (`components/FoodSwiper.jsx`, opened from the Taste profile modal's "swipe" step) is on screen: one request per card, sequential, never a batch and never on a timer or in a loop. Nothing about the user is sent — each request is a bare "give me a random recipe" call. **Nothing is cached and nothing is stored beyond the recipe's name**: the photo, category and area shown on a card are discarded the moment it's swiped, and only the plain name lands in `profile.tasteProfile.favoriteFoods`/`dislikedFoods` — same as a name typed by hand. This means new cards genuinely require a connection (FoodSwiper shows a clear "couldn't reach the recipe database" state with Retry when offline or the API is unreachable), but everything downstream of a swipe — reading a saved taste profile, the AI context export — is exactly as offline as the rest of the app.
 
-Only the barcode, search words, tile coordinates or two waypoints are sent. Routine use (re-scans, library search, logging, running a saved route, GPS tracking, viewing history) is fully offline — GPS tracking works with no signal; the map just has no background. Do not add any other runtime network calls.
+Only the barcode, search words, tile coordinates, two waypoints, or a bare "random recipe" request are sent. Routine use (re-scans, library search, logging, running a saved route, GPS tracking, viewing history, reading a saved taste profile) is fully offline — GPS tracking works with no signal; the map just has no background. Do not add any other runtime network calls.
 
 **A third, different kind of exception:** the nutrition-label scanner (`ocr.js`) fetches its own OCR engine files (Tesseract's worker script, wasm core, English language data) same-origin from `public/tesseract/` on first use, then never again — the service worker caches them offline after that (see vite.config.js's `runtimeCaching`). This never sends anything anywhere; it's a static-asset fetch, not a call to any API, and no label photo or its pixels ever leave the device. See "Nutrition-label scanning" below.
 
@@ -50,6 +51,7 @@ src/
 ├── utils.js               # Pure functions only — nutrition math, volume math, formatting, dates
 ├── foodApi.js             # Open Food Facts barcode resolution + name search (network module)
 ├── routingApi.js          # Route-planner path snapping, OSRM (network module, user-triggered only)
+├── recipeApi.js           # One random recipe per swipe-deck card, TheMealDB (network module)
 ├── mapTiles.js            # The one place the OpenStreetMap tile source is configured
 ├── plans.js               # Pure: workout-plan model, block → step expansion, estimates, descriptions
 ├── session.js             # Pure: live-session reducer (timers, auto-advance, GPS recording, saving)
@@ -103,6 +105,7 @@ src/
 │   ├── WeekReview.jsx     # Weekly summary stat grid (Today + Progress)
 │   ├── BodyFatReference.jsx # Text-only men/women body-fat reference rows for the Profile modal
 │   ├── PriorityRanking.jsx  # Drag/keyboard ranked list of training priorities
+│   ├── FoodSwiper.jsx      # Taste profile's swipe deck — one live recipe per card via recipeApi.js
 │   ├── AppShell.jsx       # SHARED — sidebar + mobile tab bar + "More" sheet
 │   ├── AppearanceSettings.jsx # SHARED — the palette/finish/density panel
 │   ├── useRestTimer.js    # Timestamp-based rest timer hook (vibrate + beep on finish)
@@ -160,11 +163,13 @@ When a food is logged, the computed calories/macros for that quantity are **stor
 
 ### The network modules
 
-`foodApi.js` and `routingApi.js` are the only files allowed to call `fetch`; `RouteMap.jsx` loads tiles from the URL in `mapTiles.js` (see the exceptions at the top).
+`foodApi.js`, `routingApi.js` and `recipeApi.js` are the only files allowed to call `fetch`; `RouteMap.jsx` loads tiles from the URL in `mapTiles.js` (see the exceptions at the top).
 
 `foodApi.js` It exposes barcode resolution (`resolveBarcode`, cache-aware), name search (`searchFoods`, explicit-only, session-cached, returns unsaved candidates) and `saveSearchResult` (dedupes by barcode). Nothing else touches the network.
 
 Search uses the legacy `world.openfoodfacts.org/cgi/search.pl` endpoint because it's the one served with CORS headers (`search.openfoodfacts.org` isn't). It sheds load with fast 503s that lack CORS headers — the browser logs those as CORS errors — so `searchFoods` retries up to 3 times with backoff, then throws a `FoodSearchError('busy')` the UI shows with a Retry button. Open Food Facts limits search to ~10 requests/minute, which is why it must stay user-triggered.
+
+`recipeApi.js` exposes one function, `fetchRandomRecipe()`, wrapping TheMealDB's keyless `random.php` test endpoint. It throws a `RecipeFetchError` (`reason: 'offline' | 'unavailable'`) so `FoodSwiper.jsx` can show a clear "couldn't reach the recipe database" state with a Retry button rather than silently getting stuck. See "Taste profile" below and the network-exceptions list at the top.
 
 ### Nutrition-label scanning
 
@@ -176,7 +181,13 @@ The parser's heuristics (worth knowing before touching either file):
 - A nutrient with no confident match is **left out of the returned `per100`**, not zeroed — so the review form shows it blank, not a false 0.
 - OCR noise is real and expected (a misread "g" unit is a common way a value gets silently skipped rather than misread) — this is exactly why the result always goes through human review, not a bug to chase into the parser.
 
-`ScanLabelModal` uses a `live` ref to guard state updates after unmount during the async OCR call — it must be **set to `true` inside the effect body**, not only at `useRef(true)` declaration, because React StrictMode's dev-only mount→cleanup→remount cycle runs the cleanup once immediately, and a ref only initialised at declaration never gets set back to `true` afterwards; every guarded state update (including the final `onScanned` call) then silently no-ops forever. This is a real bug class, not a hypothetical — it shipped once in this file. If you add another cleanup-guarded async effect anywhere in this codebase, use the same pattern (`useEffect(() => { ref.current = true; return () => { ref.current = false; }; }, [])`).
+`ScanLabelModal` uses a `live` ref to guard state updates after unmount during the async OCR call — it must be **set to `true` inside the effect body**, not only at `useRef(true)` declaration, because React StrictMode's dev-only mount→cleanup→remount cycle runs the cleanup once immediately, and a ref only initialised at declaration never gets set back to `true` afterwards; every guarded state update (including the final `onScanned` call) then silently no-ops forever. This is a real bug class, not a hypothetical — it shipped once in this file. If you add another cleanup-guarded async effect anywhere in this codebase, use the same pattern (`useEffect(() => { ref.current = true; return () => { ref.current = false; }; }, [])`). `FoodSwiper.jsx` uses the same `liveRef` pattern around its recipe fetches.
+
+### Taste profile
+
+`TasteProfileModal` (`components/Modals.jsx`, opened from Settings → Profile) is a three-step wizard over `profile.tasteProfile` — `{ dietaryStyle, allergies, cuisines, favoriteFoods, dislikedFoods, notes }`, normalised by `normalizeTasteProfile()` in `utils.js`. Dietary style/allergies/cuisines are tap-chip pickers (step 1); `favoriteFoods`/`dislikedFoods` are built by swiping real recipes in `FoodSwiper.jsx` (step 2, see below) plus a manual "not in the deck?" add field; step 3 is a review of removable chips plus the freeform `notes` field, then Save. Like `priorities`/`trainingDays`, it's stored straight on the profile row (no schema bump) and carried automatically by `exportData()`/`importData()`. `buildAiContext()` includes a TASTE PROFILE section whenever `hasTasteProfile()` is true.
+
+**`FoodSwiper.jsx`** is a Tinder-style card deck: drag a card (pointer events, same idiom as `PriorityRanking.jsx`) or tap heart/X/skip, and `recipeApi.js#fetchRandomRecipe()` fetches one new recipe (name, photo, category, area) per card — never a batch, never prefetched ahead. Only `item.name` is ever passed to the parent's `onDecide`; the photo/category/area are shown on the card and then thrown away, so **the saved taste profile is exactly the same shape it would be if the user had typed the names by hand** — no image ever reaches IndexedDB, `exportData()`, or the AI context text. A `decided` prop (the lower-cased union of the current `loved`/`disliked` sets, recomputed every render in `TasteProfileModal`) lets the swiper silently re-roll a recipe already answered for, up to `MAX_REROLLS` times before showing it anyway — this is what stops a near-exhausted set of recipes from silently spinning forever. Because this step needs a live connection, `FoodSwiper` shows its own loading/error states (a spinner card, then a "couldn't reach the recipe database" panel with Retry) rather than leaving the modal looking stuck — this is the one part of taste-profile editing that doesn't work offline; everything else (the chip pickers, the manual add field, reading a saved profile) does.
 
 ### Workout plans, live sessions, GPS and maps
 
@@ -362,8 +373,9 @@ Open DevTools → Application → IndexedDB → FinesseFit. All tables are visib
 ## What not to do
 
 - **Don't add a backend.** Data stays in IndexedDB.
-- **Don't add network calls outside `foodApi.js`/`routingApi.js` (and map tiles via `mapTiles.js`).** The permitted runtime traffic is barcode resolution, user-triggered food search, tiles for a visible map, and user-triggered route snapping.
+- **Don't add network calls outside `foodApi.js`/`routingApi.js`/`recipeApi.js` (and map tiles via `mapTiles.js`).** The permitted runtime traffic is barcode resolution, user-triggered food search, tiles for a visible map, user-triggered route snapping, and one recipe per swipe-deck card while it's open.
 - **Don't call the routing service or pre-fetch map tiles in the background.** Both public OSM services are for light, interactive use.
+- **Don't fetch more than one recipe ahead in `FoodSwiper.jsx`, and don't store anything from a card beyond its name.** The deck is deliberately request-per-card, and the photo/category/area exist only to help the user decide — see "Taste profile" below.
 - **Don't store GPS points on workout rows.** Tracks go in `tracks` (keyed by `workoutId`); the row only gets a small `routePreview`.
 - **Don't read `Date.now()` inside `session.js`**, and don't make `WorkoutSession` save on unmount (see "Workout plans, live sessions, GPS and maps").
 - **Don't search Open Food Facts as the user types.** It's rate-limited; keep it behind an explicit action.

@@ -6,7 +6,7 @@ import {
   ageFromBirthYear, applyProgression, bestE1rmByExercise, calculateNutritionTargets, COMMON_ALLERGENS, COMMON_CUISINES, compositionGoal, dateKey, dietaryStyleLabel, DIETARY_STYLES, estimateMaintenanceCalories, estimateOneRepMax, EXTRA_NUTRIENTS,
   fmtCalories, fmtDate, fmtMacro, fmtWeight, formatTagList, fromDisplayHeight, fromDisplayWeight, fromFeetInches, lastSessionFor, mealForTime, mealLabel,
   muscleLabel, normalizeBodyCompositionTargets, normalizePriorities, normalizeTasteProfile, normalizeTrainingDays, NUTRIENT_KEYS, NUTRITION_WINDOW_DAYS, parseTagList, round, scaleNutrition, servingLabel, suggestProgression,
-  sumComputed, TASTE_SWIPE_FOODS, toDisplayHeight, toDisplayWeight, toFeetInches, TRAINING_DAYS
+  sumComputed, toDisplayHeight, toDisplayWeight, toFeetInches, TRAINING_DAYS
 } from '../utils.js';
 import BodyFatReference from './BodyFatReference.jsx';
 import DateInput from './DateInput.jsx';
@@ -743,7 +743,7 @@ export function ProfileModal({ profile, onboarding = false, onClose, onSave }) {
 const TASTE_STEP_TITLES = { style: 'Taste profile', swipe: 'Swipe on foods', review: 'Review & save' };
 const TASTE_STEP_SUBTITLES = {
   style: 'Shared with the AI context export, so meal advice can factor in what you actually eat.',
-  swipe: 'Drag a card, or use the buttons — heart to love it, X for not for me, skip if you’re not fussed.',
+  swipe: 'Drag a card, or use the buttons — heart to love it, X for not for me, skip if you’re not fussed. Needs a connection; your swipes are saved on this device.',
   review: 'Tap × to drop anything that slipped in by mistake.'
 };
 
@@ -757,12 +757,9 @@ export function TasteProfileModal({ tasteProfile, onClose, onSave }) {
   const [loved, setLoved] = useState(new Set(initial.favoriteFoods));
   const [disliked, setDisliked] = useState(new Set(initial.dislikedFoods));
   const [customText, setCustomText] = useState('');
-  // Built once from the profile as it opened, so cards already decided last
-  // time aren't asked again — but the deck itself never reshuffles mid-swipe.
-  const [deck] = useState(() => {
-    const decided = new Set([...initial.favoriteFoods, ...initial.dislikedFoods].map((tag) => tag.toLowerCase()));
-    return TASTE_SWIPE_FOODS.filter((item) => !decided.has(item.name.toLowerCase()));
-  });
+  // Recomputed every render so a recipe just swiped this session — not only
+  // one saved last time — is never asked about again.
+  const decided = new Set([...loved, ...disliked].map((tag) => tag.toLowerCase()));
 
   const toggleTag = (current, setter, value) => {
     const tags = parseTagList(current);
@@ -847,7 +844,7 @@ export function TasteProfileModal({ tasteProfile, onClose, onSave }) {
       {step === 'swipe' && (
         <>
           <div className="card panel stack">
-            <FoodSwiper items={deck} onDecide={decideFood} />
+            <FoodSwiper decided={decided} onDecide={decideFood} />
           </div>
           <div className="card panel stack">
             <strong>Not in the deck?</strong>

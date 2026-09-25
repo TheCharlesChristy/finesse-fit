@@ -34,9 +34,10 @@ Camera access is required for barcode scanning, and location access for tracking
 - **Goals** — strength, bodyweight, weekly-volume, or nutrition-adherence goals, each with a live progress status (bodyweight goals also show an estimated time-to-target)
 - **Settings** — appearance (twelve palettes plus a custom one, dark/light, three
   surface finishes, density, corners, text size, contrast and motion), units,
-  daily targets, a taste profile (dietary style, allergies, favourite/disliked
-  foods, preferred cuisines, notes) shared with the AI context export,
-  persistent-storage/quota, backup export/import, app version and
+  daily targets, a taste profile (dietary style, allergies, preferred cuisines,
+  plus favourite/disliked foods built by swiping real recipe photos — needs a
+  connection, but only the name of what you swipe is ever saved) shared with
+  the AI context export, persistent-storage/quota, backup export/import, app version and
   update check, full reset
 
 The look is shared with the [Finesse](https://github.com/TheCharlesChristy/finesse-app)
